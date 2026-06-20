@@ -1,43 +1,62 @@
-execve
-pipe
-strerror
-gai_strerror
-errno
-dup
-dup2
-fork
-socketpair
-htons
-htonl
-ntohs
-ntohl
-select
-poll
-epoll (epoll_create, epoll_ctl, epoll_wait)
-kqueue (kqueue, kevent)
-socket
-accept
-listen
-send
-recv
-chdir
-bind
-connect
-getaddrinfo
-freeaddrinfo
-setsockopt
-getsockname
-getprotobyname
-fcntl
-close
-read
-write
-waitpid
-kill
-signal
-access
-stat
-open
-opendir
-readdir
-closedir
+# Networking (socket lifecycle)
+    socket          - creates a socket and returns its fd
+    bind            - assigns a local address (IP + port) to the socket
+    listen          - marks the socket as passive, ready to accept connections
+    accept          - returns a new socket for an incoming connection
+    connect         - connects the socket to a remote address (client-side)
+    send            - sends data through the socket
+    recv            - receives data from the socket
+    setsockopt      - sets socket options (e.g. SO_REUSEADDR to allow immediate port reuse after crash)
+    getsockname     - returns the local address bound to the socket (e.g. discover OS-assigned port after bind to port 0)
+    socketpair      - creates two anonymous bidirectional sockets already connected to each other (e.g. self-pipe trick to wake epoll from a signal handler)
+
+# Networking (resolution/conversion)
+    getaddrinfo     - resolves hostname + service into socket address structs
+    freeaddrinfo    - frees the linked list returned by getaddrinfo
+    getprotobyname  - looks up a protocol number by name (e.g. "tcp" -> 6)
+    htons           - converts a 16-bit value from host to network byte order
+    htonl           - converts a 32-bit value from host to network byte order
+    ntohs           - converts a 16-bit value from network to host byte order
+    ntohl           - converts a 32-bit value from network to host byte order
+
+# I/O multiplexing
+    select          - monitors multiple fds for readiness, limited to FD_SETSIZE (1024)
+    poll            - same purpose as select, no fd limit, uses pollfd array
+
+    epoll variation:
+        epoll_create    - creates an epoll instance, returns its fd
+        epoll_ctl       - adds, modifies, or removes fds from the epoll watch list
+        epoll_wait      - blocks until watched fds have events, returns only the active ones
+
+## BSD/MacOs specific functions
+    kqueue (kqueue, kevent)
+
+# Processes
+    fork
+    execve
+    waitpid
+    kill
+    signal
+
+# File descriptors (manipulation)
+    dup
+    dup2
+    pipe
+    fcntl
+    close
+    read
+    write
+
+# Filesystem
+    open
+    access
+    stat
+    chdir
+    opendir
+    readdir
+    closedir
+
+# Errors
+    strerror        - returns a string describing an errno error code
+    gai_strerror    - returns a string describing a getaddrinfo error code
+    errno           - global variable set by syscalls/library functions on failure

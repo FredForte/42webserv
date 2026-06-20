@@ -1,0 +1,13 @@
+---
+BasedOnStyle: LLVM
+AccessModifierOffset: -4
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+BreakBeforeBinaryOperators: NonAssignment
+ColumnLimit: 100
+IndentWidth: 4
+InsertBraces: true
+PointerAlignment: Left
+ReferenceAlignment: Left
+RemoveParentheses: MultipleParentheses
+SpaceAfterCStyleCast: true
