@@ -1,9 +1,11 @@
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <netdb.h> // so we can have addrinfo struct
 #include <sys/epoll.h>
 #include <sys/socket.h>
 // #include <sys/types.h>
-#include <cstring>
-#include <netdb.h> // addrinfo
 
 // socket function call
 // int socket(int domain, int type, int protocol);
@@ -20,13 +22,20 @@ int main(int argc, char** argv) {
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;     // IPv4 or IPv6
-    hints.ai_socktype = SOCK_STREAM; // TCP
+    hints.ai_socktype = SOCK_STREAM; // TCP, in this case
     hints.ai_flags = AI_PASSIVE;     // IP comes externally
 
     getaddrinfo(NULL, // IP or domain name
                 PORT_NUMBER,
                 &hints,          // you memset to zero so it get filled
                 &result_struct); // our result
+
+    int socket_fd =
+        socket(result_struct->ai_family, result_struct->ai_socktype, result_struct->ai_protocol);
+
+    if (socket_fd == -1) {
+        std::cerr << "We had an error: \"" << std::strerror(errno) << "\"" << std::endl;
+    }
 
     // Creates an epoll instance, and avoids leaking its instance by using the only valid flag
     // available: "EPOLL_CLOEXEC". This flags instructs the closure of this instance to close

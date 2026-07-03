@@ -173,6 +173,10 @@ if ((status = getaddrinfo(NULL, "3490", &hints, &servinfo)) != 0) {
 freeaddrinfo(servinfo); // free the linked-list
 ```
 
+- hints é um argumento que aponta para uma struct addrinfo que especifica o critério para selecionar o endereço do struct. Se hints não for nulo, 
+
+The hints argument points to an addrinfo structure that specifies  criteria for selecting the socket address structures returned in the list pointed to by res.  If hints is not  NULL  it  points  to  an  addrinfo structure  whose ai_family, ai_socktype, and ai_protocol specify crite‐ ria that limit the set of socket addresses returned  by  getaddrinfo(), as per man page.
+
 Por setar "AI_PASSIVE", isso diz que getaddrinfo() atribuir o enderećo do meu host local nas structs de socket, aí você não precisa setar isso na mão.
 
 Se getaddrinfo() der erro, ela retorna um valor diferente de zero. Pra ver o erro, usamos `gai_strerror()`.
