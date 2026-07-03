@@ -1,4 +1,4 @@
-NAME = btc
+NAME = webserv
 CC = c++
 CFLAGS = -Wall -Wextra -Werror -std=c++98
 
@@ -9,7 +9,7 @@ endif
 
 INCLUDES = -I.
 
-SRCS = main.cpp BitcoinExchange.cpp
+SRCS = main.cpp
 
 SRCS_PATH = src
 OBJS_PATH = objs

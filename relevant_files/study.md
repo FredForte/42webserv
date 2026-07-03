@@ -173,9 +173,7 @@ if ((status = getaddrinfo(NULL, "3490", &hints, &servinfo)) != 0) {
 freeaddrinfo(servinfo); // free the linked-list
 ```
 
-- hints é um argumento que aponta para uma struct addrinfo que especifica o critério para selecionar o endereço do struct. Se hints não for nulo, 
-
-The hints argument points to an addrinfo structure that specifies  criteria for selecting the socket address structures returned in the list pointed to by res.  If hints is not  NULL  it  points  to  an  addrinfo structure  whose ai_family, ai_socktype, and ai_protocol specify crite‐ ria that limit the set of socket addresses returned  by  getaddrinfo(), as per man page.
+- hints é um argumento que aponta para uma struct addrinfo que especifica o critério para selecionar o endereço do struct. Se hints não for nulo, ele aponta para uma struct addrinfo cujo ai_family, ai_socktype, e ai_protocol com critério que especifica e limita o set de endereços de socket retornadas por getaddrinfo().
 
 Por setar "AI_PASSIVE", isso diz que getaddrinfo() atribuir o enderećo do meu host local nas structs de socket, aí você não precisa setar isso na mão.
 
@@ -284,3 +282,50 @@ sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
 bind(sockfd, res->ai_addr, res->ai_addrlen);
 ```
 
+---
+
+```C
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+
+#define MYPORT "3490"  // the port users will be connecting to
+#define BACKLOG 10     // how many pending connections queue holds
+
+int main(void)
+{
+    struct sockaddr_storage their_addr;
+    socklen_t addr_size;
+    struct addrinfo hints, *res;
+    int sockfd, new_fd;
+
+    // !! don't forget your error checking for these calls !!
+
+    // first, load up address structs with getaddrinfo():
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;  // use IPv4 or IPv6, whichever
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+
+    getaddrinfo(NULL, MYPORT, &hints, &res);
+
+    // make a socket, bind it, and listen on it:
+
+    sockfd = socket(res->ai_family, res->ai_socktype,
+                                                 res->ai_protocol);
+    bind(sockfd, res->ai_addr, res->ai_addrlen);
+    listen(sockfd, BACKLOG);
+
+    // now accept an incoming connection:
+
+    addr_size = sizeof their_addr;
+    new_fd = accept(sockfd, (struct sockaddr *)&their_addr,
+                                                       &addr_size);
+
+    // ready to communicate on socket descriptor new_fd!
+    .
+    .
+    .
+```
