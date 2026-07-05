@@ -43,3 +43,7 @@ Explica um pouco de epoll, se quiser saber:
 Vídeo tutorial que explica como implementar muita coisa, se quiser ver:
 
     https://youtu.be/Kv2JERQR8AU?si=e7xbCp4DT8UjNY0N
+
+epoll tutorial:
+
+    https://medium.com/@m-ibrahim.research/mastering-epoll-the-engine-behind-high-performance-linux-networking-85a15e6bde90

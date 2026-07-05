@@ -329,3 +329,74 @@ int main(void)
     .
     .
 ```
+
+---
+
+struct addrinfo
+
+```C
+struct addrinfo {
+    int              ai_flags;     // AI_PASSIVE, AI_CANONNAME, etc.
+    int              ai_family;    // AF_INET, AF_INET6, AF_UNSPEC
+    int              ai_socktype;  // SOCK_STREAM, SOCK_DGRAM
+    int              ai_protocol;  // use 0 for "any"
+    size_t           ai_addrlen;   // size of ai_addr in bytes
+    struct sockaddr *ai_addr;      // struct sockaddr_in or _in6
+    char            *ai_canonname; // full canonical hostname
+
+    struct addrinfo *ai_next;      // linked list, next node
+};
+```
+
+É recente; utilizada para preparar as structs de address para uso subsequente; Também utilizada para busca de host names e de serviços. 
+
+Você preenche ela um pouco, e depois chama getaddrinfo(). Esta função irá retornar um ponteiro para uma nova lista linkada dessas estruturas com tudo o que você precisa.
+
+Na hora de preenchê-la, você pode forçar o uso de IPv4 ou IPv6 no campo de "ai_family", ou então deixar isso não especificado com "AF_UNSPEC" para usar qualquer um deles. Isso é interessante porque torna o seu código agnóstico de versão IP.
+
+É interessante notar que isso é uma lista linkada, então o compo "ai_next" aponta para a próxima instância dessa lista. O artigo indica usar o primeiro resultado que funcionar.
+
+"ai_addr" aponta para a struct sockaddr. Geralmente você não precisa ficar mexendo nessas coisas pois uma chamada para a função getaddrinfo() geralmente já supre todas as suas necessidades, mas as vezes é necessário acessar os campos internos dessa struct.
+
+---
+
+struct sockaddr 
+
+```C
+struct sockaddr {
+    unsigned short    sa_family;    // address family, AF_xxx
+    char              sa_data[14];  // 14 bytes of protocol address
+};
+```
+
+`struct sockaddr` fica dentro de `struct addrinfo`.
+
+`sa_family` pode ser várias coisas, mas o artigo indica que para os nossos propósitos, ou será AF_INET (IPv4) ou então AF_INET6 (IPv6). 
+
+`sa_data` contém o endereço de destino junto com o número de porta para o socket. Normalmente você não irá querer fazer isso manualmente.
+
+Existem mais detalhes com relação a essa struct, mas não vou abordá-los agora. Revise o artigo para saber mais.
+
+---
+
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+
+getaddrinfo()
+
+int getaddrinfo(const char *node,   // e.g. "www.example.com" or IP
+                const char *service,  // e.g. "http" or port number
+                const struct addrinfo *hints,
+                struct addrinfo **res);
+
+É uma função que gera um monte de dados pra você automaticamente. Os dados vão para a struct s.
+
+Te devolve um ponteiro para uma lista linkada de resultados, que no caso de exemplo é a variável "res".
+
+O parâmetro "node" é o nome do host ou endereço de IP para se conectar.
+
+O parâmetro service pode ser tanto um número de porta, como "80", como o nome de um serviço em particular, como "http", "ftp", "telnet" etc.
+
+O parâmetro hints, que é a struct addrinfo, você já preencheu anteriormente com as informações relevantes.
+
