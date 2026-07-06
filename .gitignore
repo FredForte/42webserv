@@ -2,3 +2,6 @@
 
 webserv
 client_bin
+parser_test
+
+*.pdf
