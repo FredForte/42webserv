@@ -379,6 +379,7 @@ Existem mais detalhes com relação a essa struct, mas não vou abordá-los agor
 
 ---
 
+```c++
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -389,6 +390,7 @@ int getaddrinfo(const char *node,   // e.g. "www.example.com" or IP
                 const char *service,  // e.g. "http" or port number
                 const struct addrinfo *hints,
                 struct addrinfo **res);
+```
 
 É uma função que gera um monte de dados pra você automaticamente. Os dados vão para a struct s.
 
@@ -400,3 +402,6 @@ O parâmetro service pode ser tanto um número de porta, como "80", como o nome 
 
 O parâmetro hints, que é a struct addrinfo, você já preencheu anteriormente com as informações relevantes.
 
+Todos os estados epoll:
+
+    https://man.archlinux.org/man/epoll_ctl.2.en
