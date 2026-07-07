@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
 
     epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd, &event_settings);
 
-    const unsigned int BUFFER_SIZE = 8;
+    const unsigned int BUFFER_SIZE = 1024;
     char* our_buffer = new char[BUFFER_SIZE]();
     int debug_how_many_read_calls_necessary = 0;
 
