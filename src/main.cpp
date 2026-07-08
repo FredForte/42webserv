@@ -43,16 +43,12 @@ int return_a_fully_prepared_socket(const char* PORT_NUMBER_TO_HOST) {
     }
 
     int option_value = 1;
-    int setsockopt_return_value =
-        setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &option_value, sizeof(option_value));
-
-    if (setsockopt_return_value == -1) {
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &option_value, sizeof(option_value))
+        == -1) {
         fail_and_exit_with_message(1, std::strerror(errno));
     }
 
-    int bind_result = bind(socket_fd, result_struct->ai_addr, result_struct->ai_addrlen);
-
-    if (bind_result == -1) {
+    if (bind(socket_fd, result_struct->ai_addr, result_struct->ai_addrlen) == -1) {
         fail_and_exit_with_message(1,
                                    std::string("Failed to bind socket: ") + std::strerror(errno));
     }
@@ -60,20 +56,35 @@ int return_a_fully_prepared_socket(const char* PORT_NUMBER_TO_HOST) {
     return socket_fd;
 }
 
+void make_fd_non_blocking(int fd_to_add) {
+    int flags = fcntl(fd_to_add, F_GETFL);
+
+    if (flags == -1) {
+        fail_and_exit_with_message(-1, std::string("Failed to acquire the file descriptor flags")
+                                           + std::strerror(errno));
+    }
+
+    if (fcntl(fd_to_add, F_SETFL, flags | O_NONBLOCK) == -1) {
+        fail_and_exit_with_message(-1,
+                                   std::string("Failed to make the file descriptor non-blocking")
+                                       + std::strerror(errno));
+    }
+}
+
 int main(int argc, char** argv) {
 
-    (void) argc;
-    (void) argv;
+    const char* configuration_file_path = "./config/configuration_file";
 
-    // if (argc == 1) {
-    //     std::exit(1);
-    // }
+    if (argc >= 2) {
+        configuration_file_path = argv[1];
+    }
+
+    static_cast<void>(configuration_file_path);
+    // load_config_parameters(configuration_file_path);
 
     int listen_fd = return_a_fully_prepared_socket("8080");
 
-    int listen_result = listen(listen_fd, 5);
-
-    if (listen_result == -1) {
+    if (listen(listen_fd, 64) == -1) {
         fail_and_exit_with_message(1, std::strerror(errno));
     }
 
@@ -90,20 +101,22 @@ int main(int argc, char** argv) {
     event_settings.events = EPOLLIN;    // me avisa quando tiver dado pra ler
     event_settings.data.fd = listen_fd; // quando o evento voltar, quero saber qual fd é
 
-    epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd, &event_settings);
+    if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd, &event_settings) == -1) {
+        fail_and_exit_with_message(1, std::string("Failed to add listening socket: ")
+                                          + std::strerror(errno));
+    }
 
-    const unsigned int BUFFER_SIZE = 1024;
+    const unsigned int BUFFER_SIZE = 8;
     char* our_buffer = new char[BUFFER_SIZE]();
-    int debug_how_many_read_calls_necessary = 0;
 
-    epoll_event ready_events[64];
+    epoll_event event_poll[64];
 
     while (true) {
-        int n = epoll_wait(epoll_instance, ready_events, 64, -1);
+        int n = epoll_wait(epoll_instance, event_poll, 64, -1);
 
         for (int i = 0; i < n; i++) {
 
-            int this_fd = ready_events[i].data.fd;
+            int this_fd = event_poll[i].data.fd;
 
             if (this_fd == listen_fd) {
                 int fd_to_add =
@@ -113,42 +126,49 @@ int main(int argc, char** argv) {
                     fail_and_exit_with_message(1, std::strerror(errno));
                 }
 
-                int flags = fcntl(fd_to_add, F_GETFL);
-                fcntl(fd_to_add, F_SETFL, flags | O_NONBLOCK);
+                make_fd_non_blocking(fd_to_add);
 
-                epoll_event event_settings;
                 event_settings.events = EPOLLIN;
                 event_settings.data.fd = fd_to_add;
 
-                epoll_ctl(epoll_instance, EPOLL_CTL_ADD, fd_to_add, &event_settings);
-                // this_fd = fd_to_add;
+                if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, fd_to_add, &event_settings) == -1) {
+                    fail_and_exit_with_message(
+                        -1, std::string(
+                                "Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
+                                + std::strerror(errno));
+                }
+
                 continue;
             }
 
-            if (ready_events[i].events & EPOLLIN && this_fd != listen_fd) {
+            if (event_poll[i].events & EPOLLIN && this_fd != listen_fd) {
 
                 memset(our_buffer, 0, BUFFER_SIZE);
-                int recv_result = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
+                int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
 
-                if (recv_result == 0) {
+                // "0" bytes read means a connection drop
+                if (bytes_read == 0) {
 
-                    epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
+                    if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL) == -1) {
+                        fail_and_exit_with_message(
+                            -1,
+                            std::string(
+                                "Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
+                                + std::strerror(errno));
+                    }
+
                     std::cout << "The client dropped the connection!\n\n";
-                    std::cout << "Total bytes read: " << debug_how_many_read_calls_necessary
-                              << std::endl;
-                    debug_how_many_read_calls_necessary = 0;
                 }
 
-                if (recv_result == -1) {
+                // Error case
+                if (bytes_read == -1) {
                     fail_and_exit_with_message(1, std::strerror(errno));
                 }
 
-                debug_how_many_read_calls_necessary += recv_result;
-
-                std::cout << our_buffer;
+                std::cout.write(our_buffer, bytes_read);
             }
 
-            // if (ready_events[i].events & EPOLLOUT) {
+            // if (event_poll[i].events & EPOLLOUT) {
             //     // fd tem espaço pra escrever
             // }
         }
