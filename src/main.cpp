@@ -1,3 +1,4 @@
+#include "../include/program_flow_utils.hpp"
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -7,15 +8,6 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h> // to have "accept()"
-
-void fail_and_exit(int error_code) {
-    std::exit(error_code);
-}
-
-void fail_and_exit_with_message(int error_code, const std::string& message) {
-    std::cerr << "Error: " << message << std::endl;
-    fail_and_exit(error_code);
-}
 
 // Creates, set its options and bind the socket
 int return_a_fully_prepared_socket(const char* PORT_NUMBER_TO_HOST) {
