@@ -6,8 +6,8 @@
 #include <vector>
 
 struct ListenAddr {
-    std::string host;
-    int port;
+	std::string host;
+	int port;
 };
 
 // path : route prefix this block if for : ex.: "/upload"
@@ -21,16 +21,16 @@ struct ListenAddr {
 // redirect_target : destination used when redirect_code != 0
 // cgi_extensions : map with the extensions and path for the cgi executors
 struct LocationConfig {
-    std::string path;
-    std::vector<std::string> methods;
-    std::string root;
-    std::string index;
-    bool autoindex;                   
-    bool upload_enabled;
-    std::string upload_store;         
-    int redirect_code;               
-    std::string redirect_target;
-    std::map<std::string, std::string> cgi_extensions;
+	std::string path;
+	std::vector<std::string> methods;
+	std::string root;
+	std::string index;
+	bool autoindex;                   
+	bool upload_enabled;
+	std::string upload_store;         
+	int redirect_code;               
+	std::string redirect_target;
+	std::map<std::string, std::string> cgi_extensions;
 };
 
 // listens : we will consume all the connections that are going to be saved on this vector
@@ -38,11 +38,11 @@ struct LocationConfig {
 // make a dynamic page and dispay a different message for each error.
 // locations : the configurations we parsed from the .config file on a vector
 struct ServerConfig {
-    std::vector<ListenAddr> listens;
-    std::string server_name;
-    std::map<int, std::string> error_pages;
-    size_t client_max_body_size;
-    std::vector<LocationConfig> locations;
+	std::vector<ListenAddr> listens;
+	std::string server_name;
+	std::map<int, std::string> error_pages;
+	size_t client_max_body_size;
+	std::vector<LocationConfig> locations;
 };
 
 // Our main vector containing all the servers configured on .conf

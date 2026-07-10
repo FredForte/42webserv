@@ -9,31 +9,31 @@
 // and error reporting (reject and refuse to start on bad config) come later.
 class ConfigParser {
 public:
-    explicit ConfigParser(const std::string& source);
+	explicit ConfigParser(const std::string& source);
 
-    Config parse();
+	Config parse();
 
 private:
-    Tokenizer _tokenizer;
+	Tokenizer _tokenizer;
 
-    ServerConfig parseServer();
-    LocationConfig parseLocation(const std::string& path);
+	ServerConfig parseServer();
+	LocationConfig parseLocation(const std::string& path);
 
-    void parseListen(ServerConfig& server);
-    void parseServerName(ServerConfig& server);
-    void parseErrorPage(ServerConfig& server);
-    void parseClientMaxBodySize(ServerConfig& server);
+	void parseListen(ServerConfig& server);
+	void parseServerName(ServerConfig& server);
+	void parseErrorPage(ServerConfig& server);
+	void parseClientMaxBodySize(ServerConfig& server);
 
-    void parseMethods(LocationConfig& location);
-    void parseRoot(LocationConfig& location);
-    void parseIndex(LocationConfig& location);
-    void parseAutoindex(LocationConfig& location);
-    void parseUploadStore(LocationConfig& location);
-    void parseReturn(LocationConfig& location);
-    void parseCgi(LocationConfig& location);
+	void parseMethods(LocationConfig& location);
+	void parseRoot(LocationConfig& location);
+	void parseIndex(LocationConfig& location);
+	void parseAutoindex(LocationConfig& location);
+	void parseUploadStore(LocationConfig& location);
+	void parseReturn(LocationConfig& location);
+	void parseCgi(LocationConfig& location);
 
-    std::string expectWord();  // consumes a TOKEN_WORD, returns its value
-    void expect(TokenType type); //todo consumes the next token (type unchecked for now)
+	std::string expectWord();  // consumes a TOKEN_WORD, returns its value
+	void expect(TokenType type); //todo consumes the next token (type unchecked for now)
 };
 
 #endif
