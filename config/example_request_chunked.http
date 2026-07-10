@@ -1,0 +1,13 @@
+POST /upload HTTP/1.1
+Host: localhost:8080
+Content-Type: text/plain
+Transfer-Encoding: chunked
+
+7
+Webserv
+4
+Test
+7
+Chunked
+0
+
