@@ -1,5 +1,7 @@
 #include "../include/client_connection.hpp"
 #include "../include/program_flow_utils.hpp"
+#include "./parser/HttpRequest.hpp"
+#include "./parser/HttpRequestParser.hpp"
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
@@ -100,14 +102,14 @@ int main(int argc, char** argv) {
                                           + std::strerror(errno));
     }
 
-    const unsigned int BUFFER_SIZE = 8;
+    const unsigned int BUFFER_SIZE = 4096;
     char* our_buffer = new char[BUFFER_SIZE]();
 
     epoll_event event_poll[64];
 
     // std::map<client_fd, cgi_instance_struct>
     std::map<int, client_connection_struct> client_map;
-    // parser
+    HttpRequestParser parser;
 
     while (true) {
         int n = epoll_wait(epoll_instance, event_poll, 64, -1);
@@ -182,11 +184,30 @@ int main(int argc, char** argv) {
                 std::cout.write(our_buffer, bytes_read);
                 client_connection.input_buffer.append(our_buffer, bytes_read);
 
-                if (size_t length = parser.completeRequestLength(client_connection.input_buffer)
-                                    != std::string::npos) {
-                    HttpRequest request = parser.parse(client_connection.input_buffer.substr(0, length));
+                size_t length = parser.completeRequestLength(client_connection.input_buffer);
+                if (length != std::string::npos) {
+                    HttpRequest request;
+
+                    request = parser.parse(client_connection.input_buffer.substr(0, length));
                     client_connection.input_buffer.erase(0, length);
+
+                    std::cout << "method: " << request.method << "\n";
+                    std::cout << "path: " << request.path << "\n";
+                    std::cout << "query_string: " << request.query_string << "\n";
+                    std::cout << "version: " << request.version << "\n";
+                    std::cout << "headers:\n";
+
+                    for (std::map<std::string, std::string>::const_iterator it =
+                             request.headers.begin();
+                         it != request.headers.end(); ++it) {
+                        std::cout << "  " << it->first << ": " << it->second << "\n";
+                    }
+
+                    std::cout << "body (" << request.body.size() << " bytes): " << request.body
+                              << "\n";
                 }
+
+                
             }
 
             // if (event_poll[i].events & EPOLLOUT) {

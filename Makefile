@@ -9,7 +9,10 @@ endif
 
 INCLUDES = -I.
 
-SRCS = main.cpp program_flow_utils.cpp
+SRCS = main.cpp program_flow_utils.cpp /parser/HttpRequestParser.cpp 
+
+# ConfigParser.cpp
+# Tokenizer.cpp
 
 PARSER_TEST_NAME = parser_test
 PARSER_TEST_SRCS = parser/main_parser.cpp parser/Tokenizer.cpp parser/ConfigParser.cpp
@@ -20,6 +23,7 @@ REQUEST_PARSER_TEST_SRCS = parser/main_request_parser.cpp parser/HttpRequestPars
 SRCS_PATH = src
 OBJS_PATH = objs
 OBJS = $(SRCS:%.cpp=$(OBJS_PATH)/%.o)
+
 PARSER_TEST_OBJS = $(PARSER_TEST_SRCS:%.cpp=$(OBJS_PATH)/%.o)
 REQUEST_PARSER_TEST_OBJS = $(REQUEST_PARSER_TEST_SRCS:%.cpp=$(OBJS_PATH)/%.o)
 
