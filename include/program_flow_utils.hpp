@@ -3,7 +3,7 @@
 
 #include <iostream>
 
-void fail_and_exit(int error_code) {};
-void fail_and_exit_with_message(int error_code, const std::string& message) {};
+void fail_and_exit(int error_code);
+void fail_and_exit_with_message(int error_code, const std::string& message);
 
 #endif

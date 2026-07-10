@@ -9,7 +9,7 @@ endif
 
 INCLUDES = -I.
 
-SRCS = main.cpp
+SRCS = main.cpp program_flow_utils.cpp
 
 SRCS_PATH = src
 OBJS_PATH = objs

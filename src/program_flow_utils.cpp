@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 
 void fail_and_exit(int error_code) {

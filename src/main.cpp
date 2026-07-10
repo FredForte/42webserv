@@ -1,9 +1,11 @@
+#include "../include/client_connection.hpp"
 #include "../include/program_flow_utils.hpp"
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h> // to set fd to non-blocking
 #include <iostream>
+#include <map>
 #include <netdb.h> // so we can have addrinfo struct
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -103,6 +105,10 @@ int main(int argc, char** argv) {
 
     epoll_event event_poll[64];
 
+    // std::map<client_fd, cgi_instance_struct>
+    std::map<int, client_connection_struct> client_map;
+    // parser
+
     while (true) {
         int n = epoll_wait(epoll_instance, event_poll, 64, -1);
 
@@ -129,6 +135,12 @@ int main(int argc, char** argv) {
                                 "Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
                                 + std::strerror(errno));
                 }
+
+                client_connection_struct client_connection;
+                client_connection.client_fd = fd_to_add;
+                client_connection.client_connection_type = STANDARD;
+
+                client_map.insert(std::make_pair(fd_to_add, client_connection));
 
                 continue;
             }
@@ -157,7 +169,24 @@ int main(int argc, char** argv) {
                     fail_and_exit_with_message(1, std::strerror(errno));
                 }
 
+                std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
+
+                if (it == client_map.end()) {
+                    fail_and_exit_with_message(
+                        1, std::string("Why this client fd doesn't have a instance?")
+                               + std::strerror(errno));
+                }
+
+                client_connection_struct& client_connection = it->second;
+
                 std::cout.write(our_buffer, bytes_read);
+                client_connection.input_buffer.append(our_buffer, bytes_read);
+
+                if (size_t length = parser.completeRequestLength(client_connection.input_buffer)
+                                    != std::string::npos) {
+                    HttpRequest request = parser.parse(client_connection.input_buffer.substr(0, length));
+                    client_connection.input_buffer.erase(0, length);
+                }
             }
 
             // if (event_poll[i].events & EPOLLOUT) {
