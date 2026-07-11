@@ -1,8 +1,8 @@
 #include "../include/cgi.hpp"
 #include "../include/program_flow_utils.hpp"
+#include "../include/socket_utils.hpp"
 #include <cstddef>
 #include <cstring>
-#include <socket_utils.hpp>
 #include <sys/epoll.h>
 #include <sys/types.h> // waitpid() includes
 #include <sys/wait.h>  // waitpid() includes
@@ -12,7 +12,7 @@
 // Can throw exception
 int execute_cgi(cgi_instance_struct& cgi_instance) {
 
-    cgi_command_struct& cgi_command = *cgi_instance.cgi_command;
+    cgi_command_struct& cgi_command = cgi_instance.cgi_command;
 
     const char* bin_path = NULL;
 

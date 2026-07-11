@@ -24,17 +24,18 @@ struct cgi_command_struct {
     std::vector<std::string> args;
 
     cgi_command_struct()
-        : cgi_type(NOT_DEFINED_YET), interpreted_language_path(NULL), path_to_program(NULL),
-          args(NULL) {}
+        : cgi_type(NOT_DEFINED_YET), interpreted_language_path(NULL), path_to_program(NULL) {}
 };
 
 struct cgi_instance_struct {
     int client_fd;
     int cgi_fd;
-    cgi_command_struct* cgi_command;
+    cgi_command_struct cgi_command;
     std::string cgi_response;
     int cgi_exit_code;
     int epoll_instance;
+
+    cgi_instance_struct() {};
 };
 
 int execute_cgi(cgi_instance_struct& cgi_instance);
