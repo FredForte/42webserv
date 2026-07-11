@@ -10,7 +10,7 @@ struct HttpRequest {
 	std::string query_string;					// everything after '?', empty if none
 	std::string version;						// HTTP/1.1
 	std::map<std::string, std::string> headers;	// header names stored lowercase
-	std::string body;                           
+	std::string body;
 };
 
 #endif
