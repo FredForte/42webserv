@@ -2,6 +2,7 @@
 #include "../include/program_flow_utils.hpp"
 #include <cstddef>
 #include <cstring>
+#include <socket_utils.hpp>
 #include <sys/epoll.h>
 #include <sys/types.h> // waitpid() includes
 #include <sys/wait.h>  // waitpid() includes
@@ -11,7 +12,7 @@
 // Can throw exception
 int execute_cgi(cgi_instance_struct& cgi_instance) {
 
-    cgi_command_struct& cgi_command = cgi_instance.cgi_command;
+    cgi_command_struct& cgi_command = *cgi_instance.cgi_command;
 
     const char* bin_path = NULL;
 
@@ -61,8 +62,10 @@ int execute_cgi(cgi_instance_struct& cgi_instance) {
 
         std::vector<const char*> argv_vector;
 
-        for (const char** arg_ptr = cgi_command.args; arg_ptr != NULL; arg_ptr++) {
-            argv_vector.push_back(*arg_ptr);
+        std::vector<std::string>::iterator it;
+
+        for (it = cgi_command.args.begin(); it != cgi_command.args.end(); it++) {
+            argv_vector.push_back(it->c_str());
         }
         argv_vector.push_back(NULL);
 
@@ -76,6 +79,8 @@ int execute_cgi(cgi_instance_struct& cgi_instance) {
 
     close(file_descriptors[1]);
 
+    make_fd_non_blocking(file_descriptors[0]);
+
     epoll_event event_settings;
     event_settings.events = EPOLLIN;
     event_settings.data.fd = file_descriptors[0];
@@ -87,7 +92,11 @@ int execute_cgi(cgi_instance_struct& cgi_instance) {
     }
 
     cgi_instance.cgi_fd = file_descriptors[0];
+
+    return cgi_instance.cgi_fd;
 }
+
+// old code:
 
 // close(file_descriptors[1]);
 

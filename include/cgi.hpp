@@ -2,6 +2,7 @@
 #define CGI_HPP
 
 #include <string>
+#include <vector>
 
 class MalformedCGIStruct : public std::exception {
 public:
@@ -20,7 +21,7 @@ struct cgi_command_struct {
     cgi_type_enum cgi_type;
     const char* interpreted_language_path;
     const char* path_to_program;
-    const char** args;
+    std::vector<std::string> args;
 
     cgi_command_struct()
         : cgi_type(NOT_DEFINED_YET), interpreted_language_path(NULL), path_to_program(NULL),
@@ -35,5 +36,7 @@ struct cgi_instance_struct {
     int cgi_exit_code;
     int epoll_instance;
 };
+
+int execute_cgi(cgi_instance_struct& cgi_instance);
 
 #endif

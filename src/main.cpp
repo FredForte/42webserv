@@ -3,68 +3,20 @@
 #include "./parser/HttpRequest.hpp"
 #include "./parser/HttpRequestParser.hpp"
 #include <cerrno>
-#include <cstdlib>
+// #include <cstdlib>
 #include <cstring>
-#include <fcntl.h> // to set fd to non-blocking
+// #include <fcntl.h> // to set fd to non-blocking
 #include <iostream>
 #include <map>
-#include <netdb.h> // so we can have addrinfo struct
+// #include <netdb.h> // so we can have addrinfo struct
+#include "../include/cgi.hpp" // to have "accept()"
+#include "../include/socket_utils.hpp"
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h> // to have "accept()"
 
-// Creates, set its options and bind the socket
-int return_a_fully_prepared_socket(const char* PORT_NUMBER_TO_HOST) {
-    addrinfo hint_addrinfo_struct;
-    addrinfo* result_struct;
+bool is_this_a_cgi_one() {
 
-    memset(&hint_addrinfo_struct, 0, sizeof(hint_addrinfo_struct));
-
-    hint_addrinfo_struct.ai_family = AF_UNSPEC;     // IPv4 or IPv6
-    hint_addrinfo_struct.ai_socktype = SOCK_STREAM; // TCP, in this case. Not datagram a.k.a UDP
-    hint_addrinfo_struct.ai_flags =
-        AI_PASSIVE; // "AI_PASSIVE" as an argument results in the use of host machine IP
-
-    getaddrinfo(NULL,                  // IP or domain name
-                PORT_NUMBER_TO_HOST,   // Port number
-                &hint_addrinfo_struct, // Base struct memsetted to zero to serve as hint
-                &result_struct);       // Result struct generated
-
-    int socket_fd =
-        socket(result_struct->ai_family, result_struct->ai_socktype, result_struct->ai_protocol);
-
-    if (socket_fd == -1) {
-        fail_and_exit_with_message(1,
-                                   std::string("Failed to create socket: ") + std::strerror(errno));
-    }
-
-    int option_value = 1;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &option_value, sizeof(option_value))
-        == -1) {
-        fail_and_exit_with_message(1, std::strerror(errno));
-    }
-
-    if (bind(socket_fd, result_struct->ai_addr, result_struct->ai_addrlen) == -1) {
-        fail_and_exit_with_message(1,
-                                   std::string("Failed to bind socket: ") + std::strerror(errno));
-    }
-
-    return socket_fd;
-}
-
-void make_fd_non_blocking(int fd_to_add) {
-    int flags = fcntl(fd_to_add, F_GETFL);
-
-    if (flags == -1) {
-        fail_and_exit_with_message(-1, std::string("Failed to acquire the file descriptor flags")
-                                           + std::strerror(errno));
-    }
-
-    if (fcntl(fd_to_add, F_SETFL, flags | O_NONBLOCK) == -1) {
-        fail_and_exit_with_message(-1,
-                                   std::string("Failed to make the file descriptor non-blocking")
-                                       + std::strerror(errno));
-    }
 }
 
 int main(int argc, char** argv) {
@@ -109,7 +61,13 @@ int main(int argc, char** argv) {
 
     // std::map<client_fd, cgi_instance_struct>
     std::map<int, client_connection_struct> client_map;
+    // std::map<cgi_fd, client_fd> cgi_fd_map;
+    std::map<int, int> cgi_fd_map;
+
     HttpRequestParser parser;
+
+    // mock code; remove it later:
+    int execute_cgi_once = 0;
 
     while (true) {
         int n = epoll_wait(epoll_instance, event_poll, 64, -1);
@@ -118,6 +76,7 @@ int main(int argc, char** argv) {
 
             int this_fd = event_poll[i].data.fd;
 
+            // new connections case
             if (this_fd == listen_fd) {
                 int fd_to_add =
                     accept(listen_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
@@ -147,6 +106,7 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            // standard connections case
             if (event_poll[i].events & EPOLLIN && this_fd != listen_fd) {
 
                 memset(our_buffer, 0, BUFFER_SIZE);
@@ -207,7 +167,53 @@ int main(int argc, char** argv) {
                               << "\n";
                 }
 
-                
+                // mock code below: cgi case
+                if (execute_cgi_once == 1) {
+
+                    // remove this later
+                    client_connection.client_connection_type = CGI;
+
+                    // mock content below:
+                    client_connection.cgi_instance.cgi_command->cgi_type = INTERPRETED_LANGUAGE;
+                    client_connection.cgi_instance.cgi_command->interpreted_language_path =
+                        "/usr/bin/python";
+                    client_connection.cgi_instance.cgi_command->path_to_program =
+                        "./relevant_files/sample_python_script.py";
+                    client_connection.cgi_instance.cgi_command->args.push_back("argument number 1");
+                    client_connection.cgi_instance.cgi_command->args.push_back("argument number 2");
+                    client_connection.cgi_instance.cgi_command->args.push_back("argument number 3");
+
+
+                    int cgi_fd = 0;
+
+                    try {
+                        cgi_fd = execute_cgi(client_connection.cgi_instance);
+                    } catch (std::exception& e) {
+                        std::cerr << e.what() << std::endl;
+                        fail_and_exit_with_message(-1, "We had an exception.");
+                    }
+
+                    cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
+
+                    execute_cgi_once == 0;
+                }
+
+                // this is a cgi fd and it's done
+
+                std::map<int, int>::iterator cgi_fd_result_it = cgi_fd_map.find(this_fd);
+
+                if (event_poll[i].events & EPOLLHUP && cgi_fd_map.find(this_fd) != cgi_fd_map.end()) {
+
+
+                    std::map<int, client_connection_struct>::iterator cgi_fd_result_it = client_map.find(cgi_fd_result_it->second);
+
+                    // happy path
+
+
+
+
+
+                }
             }
 
             // if (event_poll[i].events & EPOLLOUT) {
