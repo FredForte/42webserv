@@ -100,7 +100,7 @@ HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig r
 	response.content_type = "Still need to figure this out"; // todo: figure this out
 
 	std::string responseBody = readFile(responseLocation.root.append(responseLocation.index));
-	response.content_length = responseBody.size();
+	response.content_length = responseBody.size() + 4;
 	// response.connection = "close"; // todo: get this info
 	response.connection = "keep-alive";
 	response.body = responseBody;
