@@ -64,10 +64,19 @@ int execute_cgi(cgi_instance_struct& cgi_instance) {
 
         std::vector<std::string>::iterator it;
 
+        if (cgi_command.cgi_type == INTERPRETED_LANGUAGE) {
+            argv_vector.push_back(cgi_command.interpreted_language_path);
+            argv_vector.push_back(cgi_command.path_to_program);
+        }
+
         for (it = cgi_command.args.begin(); it != cgi_command.args.end(); it++) {
             argv_vector.push_back(it->c_str());
         }
         argv_vector.push_back(NULL);
+
+        // for (long unsigned int i = 0; i < argv_vector.size(); i++) {
+        //     std::cout << argv_vector[i] << std::endl;
+        // }
 
         if (execve(bin_path, const_cast<char* const*>(&argv_vector[0]), NULL) == -1) {
             fail_and_exit_with_message(

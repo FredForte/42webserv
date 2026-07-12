@@ -125,7 +125,9 @@ int main(int argc, char** argv) {
                 client_connection_struct client_connection;
                 client_connection.client_fd = fd_to_add;
                 client_connection.client_connection_type = STANDARD;
-                client_connection.cgi_instance = cgi_instance_struct();
+                client_connection.cgi_instance.client_fd = fd_to_add;
+                client_connection.cgi_instance.cgi_fd = 0;
+                client_connection.cgi_instance.epoll_instance = epoll_instance;
 
                 client_map.insert(std::make_pair(fd_to_add, client_connection));
 
@@ -133,7 +135,8 @@ int main(int argc, char** argv) {
             }
 
             // standard connections case
-            if (event_poll[i].events & EPOLLIN && this_fd != listen_fd) {
+            if (event_poll[i].events & EPOLLIN && this_fd != listen_fd
+                && is_this_a_cgi_fd(cgi_fd_map, this_fd) == false) {
 
                 memset(our_buffer, 0, BUFFER_SIZE);
                 int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
@@ -231,66 +234,67 @@ int main(int argc, char** argv) {
                     cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
 
                     execute_cgi_once = false;
-                }
-
-                // this is a cgi fd
-                if ((event_poll[i].events & EPOLLIN || event_poll[i].events & EPOLLHUP)
-                    && is_this_a_cgi_fd(cgi_fd_map, this_fd)) {
-
-                    client_connection_struct* client_connection;
-                    try {
-                        client_connection =
-                            get_client_instance_based_on_cgi_fd(cgi_fd_map, client_map, this_fd);
-                    } catch (const std::exception& e) {
-                        fail_and_exit_with_message(-1, e.what());
-                    }
-
-                    memset(our_buffer, 0, BUFFER_SIZE);
-                    int bytes_read = read(this_fd, our_buffer, BUFFER_SIZE);
-
-                    // Error case
-                    if (bytes_read == -1) {
-                        fail_and_exit_with_message(1, std::strerror(errno));
-                    }
-
-                    // "0" bytes read means EOF
-                    if (bytes_read == 0 && event_poll[i].events & EPOLLHUP) {
-                        cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
-
-                        if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL,
-                                      client_connection->cgi_instance.cgi_fd, NULL)
-                            == -1) {
-
-                            fail_and_exit_with_message(
-                                -1, std::string("Failed to modify epoll_instance with "
-                                                "\"epoll_ctl()\" function: ")
-                                        + std::strerror(errno));
-                        }
-
-                        std::stringstream ss_http_response;
-
-                        ss_http_response << "HTTP/1.1 200 OK\r\n"
-                                            "Content-Type: text/html\r\n";
-
-                        ss_http_response << "Content-Length: "
-                                         << client_connection->cgi_instance.cgi_response.length()
-                                         << "\r\n"
-                                            "\r\n"
-                                         << client_connection->cgi_instance.cgi_response;
-
-                        client_connection->output_buffer.append(ss_http_response.str());
-
-                        epoll_event event_settings;
-                        event_settings.events = EPOLLOUT;
-                        event_settings.data.fd = client_connection->client_fd;
-
-                        epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection->client_fd,
-                                  &event_settings);
-                    }
-
-                    client_connection->cgi_instance.cgi_response.append(our_buffer, bytes_read);
                     continue;
                 }
+            }
+
+            // this is a cgi fd
+            if ((event_poll[i].events & EPOLLIN || event_poll[i].events & EPOLLHUP)
+                && is_this_a_cgi_fd(cgi_fd_map, this_fd)) {
+
+                client_connection_struct* client_connection;
+                try {
+                    client_connection =
+                        get_client_instance_based_on_cgi_fd(cgi_fd_map, client_map, this_fd);
+                } catch (const std::exception& e) {
+                    fail_and_exit_with_message(-1, e.what());
+                }
+
+                memset(our_buffer, 0, BUFFER_SIZE);
+                int bytes_read = read(this_fd, our_buffer, BUFFER_SIZE);
+
+                // Error case
+                if (bytes_read == -1) {
+                    fail_and_exit_with_message(1, std::strerror(errno));
+                }
+
+                // "0" bytes read means EOF
+                if (bytes_read == 0 && event_poll[i].events & EPOLLHUP) {
+                    cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
+
+                    if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL,
+                                  client_connection->cgi_instance.cgi_fd, NULL)
+                        == -1) {
+
+                        fail_and_exit_with_message(
+                            -1, std::string("Failed to modify epoll_instance with "
+                                            "\"epoll_ctl()\" function: ")
+                                    + std::strerror(errno));
+                    }
+
+                    std::stringstream ss_http_response;
+
+                    ss_http_response << "HTTP/1.1 200 OK\r\n"
+                                        "Content-Type: text/html\r\n";
+
+                    ss_http_response << "Content-Length: "
+                                     << client_connection->cgi_instance.cgi_response.length()
+                                     << "\r\n"
+                                        "\r\n"
+                                     << client_connection->cgi_instance.cgi_response;
+
+                    client_connection->output_buffer.append(ss_http_response.str());
+
+                    epoll_event event_settings;
+                    event_settings.events = EPOLLOUT;
+                    event_settings.data.fd = client_connection->client_fd;
+
+                    epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection->client_fd,
+                              &event_settings);
+                }
+
+                client_connection->cgi_instance.cgi_response.append(our_buffer, bytes_read);
+                continue;
             }
 
             if (event_poll[i].events & EPOLLOUT) {
