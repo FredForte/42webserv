@@ -1,9 +1,10 @@
-#include "ConfigParser.hpp"
+#include "../../include/parser/../../include/parser/ConfigParser.hpp"
 
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include "HttpRequestParser.hpp"
+#include "../../include/parser/HttpRequestParser.hpp"
 #include "../response/HttpResponse.hpp"
 #include "../response/HttpResponseCodesIndex.hpp"
 
@@ -28,54 +29,6 @@ static void headerMessagePrint(const std::string text) {
 	for (int i = 0; i < 80; i++)
 		std::cout << "#";
 	std::cout << "\n";
-}
-
-static void printLocation(const LocationConfig& location) {
-	std::cout << "  location " << location.path << " {\n";
-
-	std::cout << "    methods:";
-	for (size_t i = 0; i < location.methods.size(); i++)
-		std::cout << " " << location.methods[i];
-	std::cout << "\n";
-
-	std::cout << "    root: " << location.root << "\n";
-	std::cout << "    index: " << location.index << "\n";
-	std::cout << "    autoindex: " << (location.autoindex ? "on" : "off") << "\n";
-	std::cout << "    upload_enabled: " << (location.upload_enabled ? "true" : "false") << "\n";
-	std::cout << "    upload_store: " << location.upload_store << "\n";
-	std::cout << "    redirect_code: " << location.redirect_code << "\n";
-	std::cout << "    redirect_target: " << location.redirect_target << "\n";
-
-	std::cout << "    cgi_extensions:";
-	for (std::map<std::string, std::string>::const_iterator it = location.cgi_extensions.begin();
-		it != location.cgi_extensions.end(); ++it)
-		std::cout << " " << it->first << "->" << it->second;
-	std::cout << "\n";
-
-	std::cout << "  }\n";
-}
-
-static void printServer(const ServerConfig& server) {
-	std::cout << "server {\n";
-
-	std::cout << "  listens:";
-	for (size_t i = 0; i < server.listens.size(); i++)
-		std::cout << " " << server.listens[i].host << ":" << server.listens[i].port;
-	std::cout << "\n";
-
-	std::cout << "  server_name: " << server.server_name << "\n";
-	std::cout << "  client_max_body_size: " << server.client_max_body_size << "\n";
-
-	std::cout << "  error_pages:";
-	for (std::map<int, std::string>::const_iterator it = server.error_pages.begin();
-		it != server.error_pages.end(); ++it)
-		std::cout << " " << it->first << "->" << it->second;
-	std::cout << "\n";
-
-	for (size_t i = 0; i < server.locations.size(); i++)
-		printLocation(server.locations[i]);
-
-	std::cout << "}\n";
 }
 
 // todo: reuse this function to know the location requested
@@ -107,7 +60,7 @@ HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig r
 	std::map<int, std::string>::iterator descriptionIndex = codesIndex.responseCodesDescriptions.find(code);
 	if (descriptionIndex != codesIndex.responseCodesDescriptions.end()) {
 		response.description = descriptionIndex->second;
-	} else 
+	} else
 		response.description = "Error getting description";
 	response.server_name = server.server_name;
 	response.content_type = "Still need to figure this out"; // todo: figure this out
@@ -118,28 +71,6 @@ HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig r
 	response.body = responseBody;
 
 	return response;
-}
-
-std::string getHttpDateHeader() {
-    // 1. Get current time
-    std::time_t now = std::time(nullptr);
-    
-    // 2. Convert to UTC (GMT) safely
-    std::tm* gmt = std::gmtime(&now);
-    
-    // 3. Buffer to hold the formatted string
-    char buffer[100];
-    
-    // %a = Abbreviated weekday (e.g., Fri)
-    // %d = Day of the month (e.g., 10)
-    // %b = Abbreviated month name (e.g., Jul)
-    // %Y = Year (e.g., 2026)
-    // %T = Time in 24-hour HH:MM:SS format
-    if (std::strftime(buffer, sizeof(buffer), "Date: %a, %d %b %Y %T GMT", gmt)) {
-        return std::string(buffer);
-    }
-    
-    return ""; // Fallback if formatting fails
 }
 
 void parseResponseToOutPut(HttpResponse response) {
@@ -178,8 +109,8 @@ void parseResponseToOutPut(HttpResponse response) {
 
 	output.append("Connection: close");
 
-	output.append("\r\n");
-	output.append("\r\n");
+	output.append("\r\n"
+				  "\r\n");
 
 	output.append(response.body);
 
@@ -205,7 +136,7 @@ int main(int argc, char** argv) {
 	// std::cout << "\n\nRequest Parse" << std::endl;
 	std::string raw = readFile(argv[2]);
 	HttpRequestParser req_parser;
-		size_t full_length = req_parser.completeRequestLength(raw);
+	size_t full_length = req_parser.completeRequestLength(raw);
 	std::cout << "completeRequestLength(full buffer): ";
 	if (full_length == std::string::npos)
 		std::cout << "npos (incomplete)\n";
@@ -249,13 +180,13 @@ int main(int argc, char** argv) {
 				headerMessagePrint("Response Message");
 				parseResponseToOutPut(responseMessage);
 			}
-		} else 
+		} else
 			std::cout << "Method requested not allowed on location" << std::endl;
 
-	} else 
+	} else
 		std::cout << "request location not found" << std::endl;
 
 
-	
+
 	return 0;
 }

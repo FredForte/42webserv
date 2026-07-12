@@ -29,6 +29,32 @@
                 //     "ignoreFailures": true
                 // }
             ]
+        },
+        {
+            "name": "config_request_test",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/config_request_test",
+            "args": ["./config/example.conf", "./config/example_request2.http"],
+            "MIMode": "gdb",
+            "cwd": "${workspaceFolder}",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                },
+                // {
+                //     "description": "Follow fork process",
+                //     "text": "set follow-fork-mode child",
+                //     "ignoreFailures": true
+                // }
+            ]
         }
 
     ]

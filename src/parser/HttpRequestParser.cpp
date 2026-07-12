@@ -1,4 +1,4 @@
-#include "HttpRequestParser.hpp"
+#include "../../include/parser/HttpRequestParser.hpp"
 
 #include <cctype>
 #include <cstdlib>
@@ -49,7 +49,7 @@ void HttpRequestParser::parseHeaderLine(const std::string& line, HttpRequest& re
 
 // Chunked transfer encoding: repeating "<hex-size>[;ext]\r\n<data>\r\n",
 // terminated by a "0\r\n" chunk. strtoul() stops at the first non-hex
-// character, so chunk extensions after ';' are skipped for free. 
+// character, so chunk extensions after ';' are skipped for free.
 // Trailer headers after the terminating chunk aren't handled yet.
 void HttpRequestParser::parseChunkedBody(const std::string& raw, size_t pos, HttpRequest& request) {
 	while (pos < raw.size()) {

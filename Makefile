@@ -9,10 +9,10 @@ endif
 
 INCLUDES = -I.
 
-SRCS = main.cpp program_flow_utils.cpp /parser/HttpRequestParser.cpp socket_utils.cpp cgi.cpp
+SRCS = main.cpp program_flow_utils.cpp  socket_utils.cpp cgi.cpp \
+	/utils/utils_config_file.cpp /parser/ConfigParser.cpp /parser/HttpRequestParser.cpp \
+	/parser/Tokenizer.cpp /response/HttpResponseCodesIndex.cpp
 
-# ConfigParser.cpp
-# Tokenizer.cpp
 
 PARSER_TEST_NAME = parser_test
 PARSER_TEST_SRCS = parser/main_parser.cpp parser/Tokenizer.cpp parser/ConfigParser.cpp

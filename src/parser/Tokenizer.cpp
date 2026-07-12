@@ -1,4 +1,4 @@
-#include "Tokenizer.hpp"
+#include "../../include/parser/Tokenizer.hpp"
 
 #include <cctype>
 
@@ -44,7 +44,7 @@ Token Tokenizer::readToken() {
 	}
 
 	// casting here because ::isspace requires a truncated char (0–255, or EOF).
-	// static_cast<unsigned char>: truncates to 8 bits → 255. 
+	// static_cast<unsigned char>: truncates to 8 bits → 255.
 	size_t start = _pos;
 	while (_pos < _source.size() && !std::isspace(static_cast<unsigned char>(_source[_pos])) &&
 		_source[_pos] != '{' && _source[_pos] != '}' && _source[_pos] != ';') {
@@ -56,7 +56,7 @@ Token Tokenizer::readToken() {
 
 // Main functions on class:
 // Peek is more of a good feature to keep the config parsers iteration more direct
-// next() consumes the token list and peek keeps the 'next' token available for consume 
+// next() consumes the token list and peek keeps the 'next' token available for consume
 // when necessary.
 Token Tokenizer::next() {
 	if (_has_peeked) {

@@ -18,7 +18,7 @@ For that we have a flag `_has_peeked` and the actual token that has been peeked 
 ## Parser
 For our parser i have defined an initial structure that we can change if something else shows up on our tests.
 
-I have commented the reason why i have those variables and this strucute on `ConfigTypes.hpp`.
+I have commented the reason why i have those variables and this strucute on `../../include/parser/ConfigTypes.hpp`.
 
 To use our parser, focus on consuming the `Config` vector, that lists our `ServerConfig`. It's the return of the funciton `parse()` that we run after having the `ConfigParser` object initialized with a source of type `std::string &source`. 
 
@@ -39,7 +39,7 @@ On `parseRequestLine`, i split the first two spaces into `method`, `target` and 
 
 On `parseHeaderLine` I split on the first `:`, trim the whitespacess off the value, lowercase the key before saving on the structure, since the header parameters are case-insensitive, this will keep a pattern on the save data.
 
-I ended up with the structure on `HttpRequest.hpp`, but if that is not enough we can add or change it. Since I've run a toLowercase function on the header parameters, we can query the std::map using the name wihtout problem.
+I ended up with the structure on `../../include/parser/HttpRequest.hpp`, but if that is not enough we can add or change it. Since I've run a toLowercase function on the header parameters, we can query the std::map using the name wihtout problem.
 
 Maybe I would still need to further parse the `query_string`, but we are set for the initial tests for now.
 

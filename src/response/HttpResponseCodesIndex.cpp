@@ -1,4 +1,4 @@
-#include "HttpResponseCodesIndex.hpp"
+#include "../../include/response/HttpResponseCodesIndex.hpp"
 
 HttpResponseCodesIndex::HttpResponseCodesIndex() {
 	responseCodesDescriptions[200] = "OK";

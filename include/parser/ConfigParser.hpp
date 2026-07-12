@@ -1,15 +1,15 @@
 #ifndef CONFIG_PARSER_HPP
 #define CONFIG_PARSER_HPP
 
-#include "ConfigTypes.hpp"
-#include "Tokenizer.hpp"
+#include "../../include/parser/ConfigTypes.hpp"
+#include "../../include/parser/Tokenizer.hpp"
 
 // Recursive-descent parser over the token stream produced by Tokenizer.
 // Happy-path only for now: assumes the config is well-formed. Validation
 // and error reporting (reject and refuse to start on bad config) come later.
 class ConfigParser {
 public:
-	explicit ConfigParser(const std::string& source);
+	ConfigParser(const std::string& source);
 
 	Config parse();
 
