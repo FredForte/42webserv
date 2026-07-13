@@ -21,7 +21,7 @@ REQUEST_PARSER_TEST_NAME = request_parser_test
 REQUEST_PARSER_TEST_SRCS = parser/main_request_parser.cpp parser/HttpRequestParser.cpp
 
 CONFIG_REQUEST_TEST_NAME = config_request_test
-CONFIG_REQUEST_TEST_SRCS = parser/main_parser_request.cpp parser/HttpRequestParser.cpp parser/Tokenizer.cpp parser/ConfigParser.cpp response/HttpResponseCodesIndex.cpp
+CONFIG_REQUEST_TEST_SRCS = parser/main_parser_request.cpp parser/HttpRequestParser.cpp parser/Tokenizer.cpp parser/ConfigParser.cpp response/HttpResponseCodesIndex.cpp utils/utils_config_file.cpp program_flow_utils.cpp
 
 SRCS_PATH = src
 OBJS_PATH = objs

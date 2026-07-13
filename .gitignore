@@ -6,3 +6,4 @@ parser_test
 request_parser_test
 *.pdf
 config_request_test
+.vscode

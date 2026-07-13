@@ -46,8 +46,8 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 
 // todo: Julio: think about having multiple listening fd's ready based on config file configuration
 // todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it can properly answer
-// todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
-// todo: Fred: Fill in all HTTP response status codes.
+// done: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
+// done: Fred: Fill in all HTTP response status codes.
 // todo: Fred: our server must have default error pages if none are provided.
 // todo: Fred: Clients must be able to upload files.
 // todo: Fred: You need at least the GET, POST, and DELETE methods.
@@ -376,7 +376,7 @@ int main(int argc, char** argv) {
                             if (client_connection.request_data.method == "GET") {
                                 // create response for get method
                                 HttpResponse responseMessage =
-                                    getResponseMessage(200, config[0], *responseLocation);
+                                    getResponseMessage(200, config[0], *responseLocation, client_connection.request_data);
                                 client_connection.output_buffer =
                                     parseResponseToOutPut(responseMessage);
                             }

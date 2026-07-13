@@ -5,9 +5,12 @@
 #include <string>
 
 class HttpResponseCodesIndex {
-	public:
+	private:
 		std::map<int, std::string> responseCodesDescriptions;
+
+	public:
 		HttpResponseCodesIndex();
+		std::string getDescription(int code) const;
 };
 
 #endif
