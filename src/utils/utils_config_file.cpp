@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cerrno>
 #include <map>
 #include "../../include/parser/ConfigTypes.hpp"
 #include "../../include/parser/HttpRequest.hpp"
@@ -100,7 +101,7 @@ HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig r
 	response.content_type = "Still need to figure this out"; // todo: figure this out
 
 	std::string responseBody = readFile(responseLocation.root.append(responseLocation.index));
-	response.content_length = responseBody.size() + 4;
+	response.content_length = responseBody.size();
 	// response.connection = "close"; // todo: get this info
 	response.connection = "keep-alive";
 	response.body = responseBody;
@@ -148,7 +149,6 @@ std::string parseResponseToOutPut(HttpResponse response) {
 
 	output.append("\r\n");
 
-	output.append("Date: ");
 	output.append(getHttpDateHeader());
 
 	output.append("\r\n");
