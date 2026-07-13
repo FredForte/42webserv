@@ -1,16 +1,16 @@
+#include "../include/cgi.hpp" // to have "accept()"
 #include "../include/client_connection.hpp"
+#include "../include/parser/ConfigParser.hpp"
 #include "../include/parser/HttpRequest.hpp"
 #include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
 #include "../include/response/HttpResponse.hpp"
+#include "../include/socket_utils.hpp"
+#include "../include/utils/utils_config_file.hpp"
 #include <cerrno>
 #include <cstring>
 #include <iostream>
 #include <map>
-#include "../include/cgi.hpp" // to have "accept()"
-#include "../include/parser/ConfigParser.hpp"
-#include "../include/socket_utils.hpp"
-#include "../include/utils/utils_config_file.hpp"
 #include <sstream>
 #include <stdexcept>
 #include <sys/epoll.h>
@@ -44,15 +44,34 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
     return &client_map_result_it->second;
 }
 
-// todo: Julio: think about having multiple listening fd's ready based on config file configuration
-// todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it can properly answer
+bool is_this_a_listen_fd(std::map<int, ServerConfig*>& listen_fd_to_server_config_map_ref,
+                         int this_fd) {
+    return listen_fd_to_server_config_map_ref.find(this_fd)
+           != listen_fd_to_server_config_map_ref.end();
+}
+
+// Can throw exception
+ServerConfig* get_server_config_instance_based_on_listen_fd(
+    std::map<int, ServerConfig*>& listen_fd_to_server_config_map_ref, int this_fd) {
+
+    std::map<int, ServerConfig*>::iterator it = listen_fd_to_server_config_map_ref.find(this_fd);
+
+    if (it == listen_fd_to_server_config_map_ref.end()) {
+        throw std::runtime_error("Should't this fd be a listen fd one?!");
+    }
+
+    return it->second;
+}
+
+// done: Julio: think about having multiple listening fd's ready based on config file configuration
+// done: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
+//              can properly answer
 // todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
-// todo: Fred: Fill in all HTTP response status codes.
-// todo: Fred: our server must have default error pages if none are provided.
-// todo: Fred: Clients must be able to upload files.
-// todo: Fred: You need at least the GET, POST, and DELETE methods.
-// todo: Both: Stress test your server to ensure it remains available at all times.
-// todo: Both: Your server must be able to listen to multiple ports to deliver different content (see
+// todo: Fred: Fill in all HTTP response status codes. todo: Fred: our server must have default
+// error pages if none are provided. todo: Fred: Clients must be able to upload files.
+// todo: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
+// server to ensure it remains available at all times. todo: Both: Your server must be able to
+// listen to multiple ports to deliver different content (see
 //              Configuration file).
 // todo: Fred: Set the maximum allowed size for client request bodies.
 // todo: Fred: HTTP redirection.
@@ -62,8 +81,8 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 //              is provided.
 // todo: Fred: Test chunk sizes are in hexadecimal.
 // todo: Fred: Test chunk limit read between calls.
-// todo: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a CRLF end line.
-// todo: Fred: Set limit to how much we can read.
+// todo: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
+// CRLF end line. todo: Fred: Set limit to how much we can read.
 // todo: Julio: Have a careful look at the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
@@ -85,36 +104,49 @@ int main(int argc, char** argv) {
 
     std::string source = readFile(configuration_file_path);
     ConfigParser parser(source);
-    Config config = parser.parse();
-    for (size_t i = 0; i < config.size(); i++) {
-        printServer(config[i]);
-    }
-
-    static_cast<void>(configuration_file_path);
-    // load_config_parameters(configuration_file_path);
-
-    int listen_fd = return_a_fully_prepared_socket("8080");
-
-    if (listen(listen_fd, 64) == -1) {
-        fail_and_exit_with_message(1, std::strerror(errno));
-    }
-
-    sockaddr_storage their_addr;
-    socklen_t addr_size = sizeof(their_addr);
-
-    // Creates an epoll instance, and avoids leaking its instance by using the only valid flag
-    // available: "EPOLL_CLOEXEC". This flags instructs the closure of this instance to close
-    // itself if the process running changes when using the exec() function. If you pass 0, it
-    // won't close.
-    int epoll_instance = epoll_create1(EPOLL_CLOEXEC);
+    Config server_config_vec = parser.parse();
+    // for (size_t i = 0; i < config_vec.size(); i++) {
+    //     printServer(config_vec[i]);
+    // }
 
     epoll_event event_settings;
-    event_settings.events = EPOLLIN;    // me avisa quando tiver dado pra ler
-    event_settings.data.fd = listen_fd; // quando o evento voltar, quero saber qual fd é
+    // Creates an epoll instance, and avoids leaking its instance by using the only valid
+    // flag available: "EPOLL_CLOEXEC". This flags instructs the closure of this instance to
+    // close itself if the process running changes when using the exec() function. If you
+    // pass 0, it won't close.
+    int epoll_instance = epoll_create1(EPOLL_CLOEXEC);
 
-    if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd, &event_settings) == -1) {
-        fail_and_exit_with_message(1, std::string("Failed to add listening socket: ")
-                                          + std::strerror(errno));
+    // std::map<listen_fd, ServerConfig*>
+    std::map<int, ServerConfig*> listen_fd_to_server_config_map;
+
+    size_t server_config_vec_size = server_config_vec.size();
+    for (size_t i = 0; i < server_config_vec_size; i++) {
+
+        size_t listens_size = server_config_vec[i].listens.size();
+        for (size_t j = 0; j < listens_size; j++) {
+
+            std::stringstream ss_port_value;
+            ss_port_value << server_config_vec[i].listens[j].port;
+
+            int listen_fd_instance = return_a_fully_prepared_socket(ss_port_value.str().c_str());
+
+            if (listen(listen_fd_instance, 64) == -1) {
+                fail_and_exit_with_message(1, std::strerror(errno));
+            }
+
+            event_settings.events = EPOLLIN; // me avisa quando tiver dado pra ler
+            event_settings.data.fd =
+                listen_fd_instance; // quando o evento voltar, quero saber qual fd é
+
+            if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd_instance, &event_settings)
+                == -1) {
+                fail_and_exit_with_message(1, std::string("Failed to add listening socket: ")
+                                                  + std::strerror(errno));
+            }
+
+            listen_fd_to_server_config_map.insert(
+                std::make_pair(listen_fd_instance, &server_config_vec[i]));
+        }
     }
 
     const unsigned int BUFFER_SIZE = 4096;
@@ -122,10 +154,12 @@ int main(int argc, char** argv) {
 
     epoll_event event_poll[64];
 
-    // std::map<client_fd, cgi_instance_struct>
+    // std::map<client_fd, client_connection_struct>
     std::map<int, client_connection_struct> client_map;
     // std::map<cgi_fd, client_fd> cgi_fd_map;
     std::map<int, int> cgi_fd_map;
+    // std::map<client_fd, ServerConfig> fd_to_ServerConfig_ptr_map;
+    std::map<int, ServerConfig*> fd_to_ServerConfig_ptr_map;
 
     HttpRequestParser req_parser;
 
@@ -140,9 +174,13 @@ int main(int argc, char** argv) {
             int this_fd = event_poll[i].data.fd;
 
             // new connections case
-            if (this_fd == listen_fd) {
+            if (is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd)) {
+
+                sockaddr_storage their_addr;
+                socklen_t addr_size = sizeof(their_addr);
+
                 int fd_to_add =
-                    accept(listen_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
+                    accept(this_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
 
                 if (fd_to_add == -1) {
                     fail_and_exit_with_message(1, std::strerror(errno));
@@ -160,6 +198,9 @@ int main(int argc, char** argv) {
                                 + std::strerror(errno));
                 }
 
+                ServerConfig* server_config_ptr = get_server_config_instance_based_on_listen_fd(
+                    listen_fd_to_server_config_map, this_fd);
+
                 client_connection_struct client_connection;
                 client_connection.client_fd = fd_to_add;
                 client_connection.ready_to_respond = false;
@@ -167,14 +208,18 @@ int main(int argc, char** argv) {
                 client_connection.cgi_instance.client_fd = fd_to_add;
                 client_connection.cgi_instance.cgi_fd = 0;
                 client_connection.cgi_instance.epoll_instance = epoll_instance;
+                client_connection.ServerConfig_ptr = server_config_ptr;
 
                 client_map.insert(std::make_pair(fd_to_add, client_connection));
+
+                fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
 
                 continue;
             }
 
-            // standard connections case
-            if (event_poll[i].events & EPOLLIN && this_fd != listen_fd
+            // standard connections case. Only client connections accepted
+            if (event_poll[i].events & EPOLLIN
+                && is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd) == false
                 && is_this_a_cgi_fd(cgi_fd_map, this_fd) == false) {
 
                 memset(our_buffer, 0, BUFFER_SIZE);
@@ -359,7 +404,7 @@ int main(int argc, char** argv) {
 
                 if (client_connection.ready_to_respond == false) {
                     LocationConfig* responseLocation =
-                        findRequestedLocation(config[0], client_connection.request_data);
+                        findRequestedLocation(server_config_vec[0], client_connection.request_data);
 
                     if (responseLocation) {
                         // std::cout << "found the request location" << std::endl;
@@ -375,8 +420,8 @@ int main(int argc, char** argv) {
 
                             if (client_connection.request_data.method == "GET") {
                                 // create response for get method
-                                HttpResponse responseMessage =
-                                    getResponseMessage(200, config[0], *responseLocation);
+                                HttpResponse responseMessage = getResponseMessage(
+                                    200, server_config_vec[0], *responseLocation);
                                 client_connection.output_buffer =
                                     parseResponseToOutPut(responseMessage);
                             }

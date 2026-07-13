@@ -1,9 +1,9 @@
 #ifndef CLIENT_CONNECTION_HPP
 #define CLIENT_CONNECTION_HPP
 
+#include "./parser/HttpRequest.hpp"
 #include "cgi.hpp"
 #include <string>
-#include "./parser/HttpRequest.hpp"
 
 enum client_connection_enum {
     STANDARD,
@@ -18,6 +18,7 @@ struct client_connection_struct {
     client_connection_enum client_connection_type;
     cgi_instance_struct cgi_instance;
     HttpRequest request_data;
+    ServerConfig* ServerConfig_ptr;
 };
 
 #endif
