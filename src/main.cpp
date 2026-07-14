@@ -9,6 +9,7 @@
 #include <map>
 #include "../include/cgi.hpp" // to have "accept()"
 #include "../include/parser/ConfigParser.hpp"
+#include "../include/response/response_handlers.hpp"
 #include "../include/socket_utils.hpp"
 #include "../include/utils/utils_config_file.hpp"
 #include <sstream>
@@ -49,20 +50,20 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 // done: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
 // done: Fred: Fill in all HTTP response status codes.
 // done: Fred: our server must have default error pages if none are provided.
-// todo: Fred: Clients must be able to upload files.
-// todo: Fred: You need at least the GET, POST, and DELETE methods.
+// done: Fred: Clients must be able to upload files.
+// done: Fred: You need at least the GET, POST, and DELETE methods.
 // todo: Both: Stress test your server to ensure it remains available at all times.
 // todo: Both: Your server must be able to listen to multiple ports to deliver different content (see
 //              Configuration file).
 // todo: Fred: Set the maximum allowed size for client request bodies.
-// todo: Fred: HTTP redirection.
+// done: Fred: HTTP redirection.
 // done: Fred: Enabling or disabling directory listing.
-// todo: Fred: Default file to serve when the requested resource is a directory.
-// todo: Fred: Uploading files from the clients to the server is authorized, and storage location
+// done: Fred: Default file to serve when the requested resource is a directory.
+// done: Fred: Uploading files from the clients to the server is authorized, and storage location
 //              is provided.
-// todo: Fred: Test chunk sizes are in hexadecimal.
-// todo: Fred: Test chunk limit read between calls.
-// todo: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a CRLF end line.
+// done: Fred: Test chunk sizes are in hexadecimal.
+// done: Fred: Test chunk limit read between calls.
+// done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a CRLF end line.
 // todo: Fred: Set limit to how much we can read.
 // todo: Julio: Have a careful look at the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
@@ -362,7 +363,15 @@ int main(int argc, char** argv) {
                         findRequestedLocation(config[0], client_connection.request_data);
 
                     if (responseLocation) {
-                        if (findStringOnVector(responseLocation->methods,
+                        if (responseLocation->redirect_code != 0) {
+                            // A "return" location answers every method the same
+                            // way, so this is checked ahead of the methods list
+                            // instead of going through it.
+                            HttpResponse responseMessage =
+                                buildRedirectResponse(config[0], *responseLocation);
+                            client_connection.output_buffer =
+                                parseResponseToOutPut(responseMessage);
+                        } else if (findStringOnVector(responseLocation->methods,
                                                client_connection.request_data.method)) {
                             // getResponseMessage dispatches on request_data.method
                             // internally (GET/POST/DELETE each have their own handler

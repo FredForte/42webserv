@@ -222,6 +222,12 @@ std::string parseResponseToOutPut(HttpResponse response) {
 
 	output.append("\r\n");
 
+	if (!response.redirect_location.empty()) {
+		output.append("Location: ");
+		output.append(response.redirect_location);
+		output.append("\r\n");
+	}
+
 	output.append("Connection: close");
 
 	output.append("\r\n"

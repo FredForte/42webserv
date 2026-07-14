@@ -185,6 +185,29 @@ HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, c
 	return response;
 }
 
+HttpResponse buildRedirectResponse(ServerConfig& server, LocationConfig& location) {
+	HttpResponse response;
+	HttpResponseCodesIndex codesIndex;
+
+	response.server_name = server.server_name;
+	response.connection = "keep-alive";
+	response.content_type = "text/html; charset=UTF-8";
+	response.code = location.redirect_code;
+	response.description = codesIndex.getDescription(location.redirect_code);
+	response.redirect_location = location.redirect_target;
+
+	std::stringstream body;
+	body << "<html>\n<head><title>" << response.code << " " << response.description << "</title></head>\n"
+		 << "<body>\n<center><h1>" << response.code << " " << response.description << "</h1></center>\n"
+		 << "<center>Redirecting to <a href=\"" << location.redirect_target << "\">"
+		 << location.redirect_target << "</a></center>\n"
+		 << "<hr><center>Webserv/1.0</center>\n</body>\n</html>";
+
+	response.body = body.str();
+	response.content_length = response.body.size();
+	return response;
+}
+
 HttpResponse handleDeleteRequest(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
