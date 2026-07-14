@@ -23,3 +23,25 @@ In a Unix box, on `/etc/services` file.
 - SMTP is port 25
 
 Ports under 1024 are often considered special, and usually require special OS privileges to use.
+
+# DevLog
+
+## GET/POST/DELETE
+They are splint into dedicated handlers `response_handlers.cpp` and hpp
+
+- `handleGetRequest` : file, directory, autoindex, 404, 403 logic
+- `handlePostRequest` : Checks `location.upload` for enabled, extracts the basename of the request path as filename ( rejecting `./../` so the write can never espace `upload_store`), writes `request.body` to disk and returns 201/400/403/500.
+- `handleDeleteRequest` : Resolves `location.root` + path, 404 if missing, 403 if not a regular file, `unlink()` it and return 204/404/403/500
+
+`getResponseMessage` in `utils_config_file.cpp` is a dispatcher on `request.method` (defaulting to 405 for anything else).
+
+`joinPath` helper to replace the inline slash-checking, preventing it from duplicating the root + path and index + path.
+
+# Tester
+On the `tests` directory we have a script `run_tests.sh` and a set of test requests that we can run and tests the webserv behaviour, its interactive and allow us to select specific tests as we go. 
+
+It works like this:
+- Boots `webserv` using a config provided `./run_tests.sh [config-path]`, if none is provided it uses `config/upload_test.conf`, it will also build if the `webserv` binary is not found.
+- Lists every `*.http` file in `tests/`, prompts you to pick one or `a` for all or `q` to quit.
+- For each pick: prints the raw request, sends it over a real TCP socket via `nc -q 1` with a 2s reply cap since `webserv` is not closing the connection after responding yet, then prints the raw response.
+- Kills the server on exit/quit/Ctrl+C via a trap, so nothing lingers

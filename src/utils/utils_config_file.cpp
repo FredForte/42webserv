@@ -8,6 +8,7 @@
 #include "../../include/parser/HttpRequest.hpp"
 #include "../../include/response/HttpResponse.hpp"
 #include "../../include/response/HttpResponseCodesIndex.hpp"
+#include "../../include/response/response_handlers.hpp"
 #include <ctime>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -96,7 +97,9 @@ LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &re
 
 // Here i am creating a page from scratch if its not found on the error pages path
 // using the code and description on the http codes control object
-static std::string getErrorPage(int code, ServerConfig& server) {
+// Not static: shared by the per-method handlers in response_handlers.cpp so every
+// method reports errors (403/404/500/...) the same way.
+std::string getErrorPage(int code, ServerConfig& server) {
 	std::map<int, std::string>::const_iterator it = server.error_pages.find(code);
 	if (it != server.error_pages.end()) {
 		std::string custom_path = "www" + it->second;
@@ -121,70 +124,24 @@ static std::string getErrorPage(int code, ServerConfig& server) {
 	return ss.str();
 }
 
-static std::string generateAutoIndexHtml(const std::string& directory_path, const std::string& uri_path) {
-	DIR* dir = opendir(directory_path.c_str());
-	if (!dir) {
-		return "<html><body><h1>403 Forbidden</h1><p>Cannot open directory</p></body></html>";
-	}
-
-	std::stringstream html;
-	html << "<html>\n<head><title>Index of " << uri_path << "</title></head>\n";
-	html << "<body>\n<h1>Index of " << uri_path << "</h1>\n<hr>\n<pre>\n";
-
-	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL) {
-		std::string name = entry->d_name;
-		
-		if (name == ".")
-			continue;
-
-		std::string link_path = uri_path;
-		if (link_path.empty() || link_path[link_path.length() - 1] != '/') {
-			link_path += "/";
-		}
-		link_path += name;
-
-		std::string full_child_path = directory_path;
-		if (full_child_path.empty() || full_child_path[full_child_path.length() - 1] != '/') {
-			full_child_path += "/";
-		}
-		full_child_path += name;
-
-		struct stat child_stat;
-		std::string display_name = name;
-		if (stat(full_child_path.c_str(), &child_stat) == 0 && S_ISDIR(child_stat.st_mode)) {
-			display_name += "/";
-			link_path += "/";
-		}
-
-		html << "<a href=\"" << link_path << "\">" << display_name << "</a>\n";
-	}
-	closedir(dir);
-
-	html << "</pre>\n<hr>\n</body>\n</html>";
-	return html.str();
-}
-
-// This is a crucial centralizing function for our responses
-// Here we detect if the provided code is not 200 (for success) and start handing it for provide
-// error pages, if an erro page is not found on our parsed server config object, we will create it
-//
-// If its a success we will analyze the requested path using a series of checks
-// First we will consider '/' for an empty provided path and treat it as the root server location
-// If we get a path we will then test it for the length of the location path for a match
-// Then test it for directory, if its a directory we check for an index file, if not we check 
-// for autoindex, if autoindex is enabled we will generate an autoindex page, if not we will return a 403
-// If its not a directory we check for cgi, if cgi is enabled we will generate a cgi response
-// if cgi is not enabled we will return a 404
+// This is a crucial centralizing function for our responses.
+// code variable here is a precheck_status
+// If the caller already determined an error code
+// we hand it straight to the error-page path.
+// Otherwise we dispatch on the request method: each method owns its own
+// success/error handling (GET reads files/autoindex, POST writes uploads,
+// DELETE removes files) in response_handlers.cpp, so this function stays a router
+// That handle pre-flight internal code control
+// handlePostRequest will further define the right return codes for the responses that
+// are dispatched by this router.
 HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig responseLocation, const HttpRequest& request) {
-	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
-	
-	response.server_name = server.server_name;
-	response.connection = "keep-alive";
-	response.content_type = "text/html; charset=UTF-8";
 
 	if (code != 200) {
+		HttpResponse response;
+		response.server_name = server.server_name;
+		response.connection = "keep-alive";
+		response.content_type = "text/html; charset=UTF-8";
 		response.code = code;
 		response.description = codesIndex.getDescription(code);
 		response.body = getErrorPage(code, server);
@@ -192,58 +149,20 @@ HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig r
 		return response;
 	}
 
-	std::string root_path = responseLocation.root;
-	std::string req_path = request.path;
-	
-	if (!root_path.empty() && root_path[root_path.length() - 1] == '/' && !req_path.empty() && req_path[0] == '/') {
-		req_path = req_path.substr(1);
-	} else if (!root_path.empty() && root_path[root_path.length() - 1] != '/' && !req_path.empty() && req_path[0] != '/') {
-		root_path += "/";
-	}
-	std::string local_path = root_path + req_path;
+	if (request.method == "GET")
+		return handleGetRequest(server, responseLocation, request);
+	if (request.method == "POST")
+		return handlePostRequest(server, responseLocation, request);
+	if (request.method == "DELETE")
+		return handleDeleteRequest(server, responseLocation, request);
 
-	struct stat path_stat;
-	if (stat(local_path.c_str(), &path_stat) == 0) {
-		if (S_ISDIR(path_stat.st_mode)) {
-			std::string index_path = local_path;
-			if (index_path.empty() || index_path[index_path.length() - 1] != '/') {
-				index_path += "/";
-			}
-			index_path += responseLocation.index;
-
-			struct stat index_stat;
-			if (stat(index_path.c_str(), &index_stat) == 0 && S_ISREG(index_stat.st_mode)) {
-				response.code = 200;
-				response.description = codesIndex.getDescription(200);
-				response.body = readFile(index_path);
-			} else {
-				if (responseLocation.autoindex) {
-					response.code = 200;
-					response.description = codesIndex.getDescription(200);
-					response.body = generateAutoIndexHtml(local_path, request.path);
-				} else {
-					response.code = 403;
-					response.description = codesIndex.getDescription(403);
-					response.body = getErrorPage(403, server);
-				}
-			}
-		} 
-		else if (S_ISREG(path_stat.st_mode)) {
-			response.code = 200;
-			response.description = codesIndex.getDescription(200);
-			response.body = readFile(local_path);
-		} 
-		else {
-			response.code = 403;
-			response.description = codesIndex.getDescription(403);
-			response.body = getErrorPage(403, server);
-		}
-	} else {
-		response.code = 404;
-		response.description = codesIndex.getDescription(404);
-		response.body = getErrorPage(404, server);
-	}
-
+	HttpResponse response;
+	response.server_name = server.server_name;
+	response.connection = "keep-alive";
+	response.content_type = "text/html; charset=UTF-8";
+	response.code = 405;
+	response.description = codesIndex.getDescription(405);
+	response.body = getErrorPage(405, server);
 	response.content_length = response.body.size();
 	return response;
 }

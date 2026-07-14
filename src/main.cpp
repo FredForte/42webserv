@@ -48,7 +48,7 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 // todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it can properly answer
 // done: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
 // done: Fred: Fill in all HTTP response status codes.
-// todo: Fred: our server must have default error pages if none are provided.
+// done: Fred: our server must have default error pages if none are provided.
 // todo: Fred: Clients must be able to upload files.
 // todo: Fred: You need at least the GET, POST, and DELETE methods.
 // todo: Both: Stress test your server to ensure it remains available at all times.
@@ -56,7 +56,7 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 //              Configuration file).
 // todo: Fred: Set the maximum allowed size for client request bodies.
 // todo: Fred: HTTP redirection.
-// todo: Fred: Enabling or disabling directory listing.
+// done: Fred: Enabling or disabling directory listing.
 // todo: Fred: Default file to serve when the requested resource is a directory.
 // todo: Fred: Uploading files from the clients to the server is authorized, and storage location
 //              is provided.
@@ -362,31 +362,26 @@ int main(int argc, char** argv) {
                         findRequestedLocation(config[0], client_connection.request_data);
 
                     if (responseLocation) {
-                        // std::cout << "found the request location" << std::endl;
-                        // std::cout << "Request method check on location" << std::endl;
-                        // check request method and location method
-
                         if (findStringOnVector(responseLocation->methods,
                                                client_connection.request_data.method)) {
-                            // std::cout << "Found requested method: "
-                            //           << client_connection.request_data.method << " on found
-                            //           location"
-                            //           << std::endl;
-
-                            if (client_connection.request_data.method == "GET") {
-                                // create response for get method
-                                HttpResponse responseMessage =
-                                    getResponseMessage(200, config[0], *responseLocation, client_connection.request_data);
-                                client_connection.output_buffer =
-                                    parseResponseToOutPut(responseMessage);
-                            }
+                            // getResponseMessage dispatches on request_data.method
+                            // internally (GET/POST/DELETE each have their own handler
+                            // in response_handlers.cpp).
+                            HttpResponse responseMessage =
+                                getResponseMessage(200, config[0], *responseLocation, client_connection.request_data);
+                            client_connection.output_buffer =
+                                parseResponseToOutPut(responseMessage);
                         } else {
-                            // return error page 500 or something
-                            std::cerr << "Method requested not allowed on location" << std::endl;
+                            HttpResponse responseMessage =
+                                getResponseMessage(405, config[0], *responseLocation, client_connection.request_data);
+                            client_connection.output_buffer =
+                                parseResponseToOutPut(responseMessage);
                         }
                     } else {
-                        // return error page 500 or something
-                        std::cerr << "request location not found" << std::endl;
+                        HttpResponse responseMessage =
+                            getResponseMessage(404, config[0], LocationConfig(), client_connection.request_data);
+                        client_connection.output_buffer =
+                            parseResponseToOutPut(responseMessage);
                     }
 
                     client_connection.ready_to_respond = true;
