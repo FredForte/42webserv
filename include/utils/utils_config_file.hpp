@@ -11,6 +11,7 @@ bool findStringOnVector(std::vector<std::string> vector, std::string toFind);
 LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &request);
 std::string getErrorPage(int code, ServerConfig& server);
 std::string getContentType(const std::string& path);
+std::string getServerSignature();
 std::string determineConnection(const HttpRequest& request);
 bool isCloseConnection(const std::string& connection);
 HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig responseLocation, const HttpRequest& request);

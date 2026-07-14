@@ -80,7 +80,7 @@ bool findStringOnVector(std::vector<std::string> vector, std::string toFind) {
 }
 
 LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &request) {
-	std::cout << "Looking for requested location: " << request.path << std::endl;
+	// std::cout << "Looking for requested location: " << request.path << std::endl;
 	LocationConfig* best_match = NULL;
 	size_t max_len = 0;
 
@@ -114,10 +114,10 @@ static std::string getFileExtension(const std::string& path) {
 	return extension;
 }
 
-// Maps a served file's extension to its MIME type. Text-based types get
-// "; charset=UTF-8" appended (meaningful for how they render); binary types
-// (images, PDF) don't, since charset doesn't apply to them. Anything not in
-// the table falls back to application/octet-stream - the standard "don't
+// Maps a served file's extension to its MIME type. 
+// Text-based types get "; charset=UTF-8" appended
+// binary types (images, PDF) don't, since charset doesn't apply to them. 
+// Anything not in the table falls back to application/octet-stream - the standard "don't
 // try to render this" signal, safer than guessing text/html for a binary
 // file we don't recognize.
 std::string getContentType(const std::string& path) {
@@ -169,10 +169,15 @@ std::string determineConnection(const HttpRequest& request) {
 }
 
 // Single source of truth for reading a response's connection decision back
-// out, so callers (e.g. the epoll loop deciding whether to close the socket
-// once output_buffer drains) don't compare against the "close" literal themselves.
 bool isCloseConnection(const std::string& connection) {
 	return connection == "close";
+}
+
+// Cosmetic footer signature stamped on generated HTML bodies (error pages,
+// upload/redirect confirmations) - unrelated to the config's server_name,
+// which goes into the Server: response header instead.
+std::string getServerSignature() {
+	return "Webserv/1.0";
 }
 
 // Here i am creating a page from scratch if its not found on the error pages path
@@ -200,20 +205,20 @@ std::string getErrorPage(int code, ServerConfig& server) {
 	std::stringstream ss;
 	ss << "<html>\n<head><title>" << code << " " << desc << "</title></head>\n"
 	   << "<body>\n<center><h1>" << code << " " << desc << "</h1></center>\n"
-	   << "<hr><center>Webserv/1.0</center>\n</body>\n</html>";
+	   << "<hr><center>" << getServerSignature() << "</center>\n</body>\n</html>";
 	return ss.str();
 }
 
 // This is a crucial centralizing function for our responses.
-// code variable here is a precheck_status
+// Code variable here is a precheck_status.
 // If the caller already determined an error code
 // we hand it straight to the error-page path.
-// Otherwise we dispatch on the request method: each method owns its own
+// Otherwise we dispatch to the requested method: each method owns its own
 // success/error handling (GET reads files/autoindex, POST writes uploads,
 // DELETE removes files) in response_handlers.cpp, so this function stays a router
 // That handle pre-flight internal code control
-// handlePostRequest will further define the right return codes for the responses that
-// are dispatched by this router.
+// handlePostRequest (Post/Get/Delete) will further define the right 
+// return codes for the responses that are dispatched by this router.
 HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig responseLocation, const HttpRequest& request) {
 	HttpResponseCodesIndex codesIndex;
 
@@ -247,6 +252,9 @@ HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig r
 	return response;
 }
 
+// Boiler-plate type of date and time cpp getter
+// Already returning the full header line for Date:
+// Returns empty if formatting fails
 static std::string getHttpDateHeader() {
     // 1. Get current time
     std::time_t now = std::time(NULL);
@@ -269,6 +277,10 @@ static std::string getHttpDateHeader() {
     return ""; // Fallback if formatting fails
 }
 
+// Very procedural and illustrative way of creating our response
+// header and body, I've left it spaced out as much as possible
+// to make it clear where each header line goes and how its 
+// being set here
 std::string parseResponseToOutPut(HttpResponse response) {
 	std::string output;
 	output.append("HTTP/1.1 ");

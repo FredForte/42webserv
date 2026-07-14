@@ -74,3 +74,8 @@ We follow a file extension detection path, lowercasing it before the tests to pr
 We are using `determineConnection(const HttpRequest &req)` to decide the connection type to send on our responses, HTTP 1.1 default to `keep-alive`, HTTP 1.0 defaults to `close`, and we are using the clients `Connection` to override the defaults. The strucute on the `buildRedirectReponse` had to receive the HttpRequest as an addition, not that clean, but it is working as expected.
 
 Our main needs to also read the connection flag in order to close or keep the conneciton open for the responded client. 
+
+# Improvements
+
+## Root Setting on .conf
+On the `.conf` file, right now we need to have a `root` set for each location that allows for the methog `GET`, it would be better in the future to have a fallback from `location` lever to `server` level settings in case a `GET` does not find a set `root`. 

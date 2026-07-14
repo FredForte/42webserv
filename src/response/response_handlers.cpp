@@ -44,12 +44,13 @@ static std::string extractUploadFilename(const LocationConfig& location, const H
 	return filename;
 }
 
-// First checks if the directory is accessible and exists, if not create a hardcoded 403 page
-// Proceeds to generate the autoindex page
+// Returns "" if the directory can't be opened, leaving the 403 decision
+// (and page) to the caller, which is the one holding the server reference
+// getErrorPage needs.
 static std::string generateAutoIndexHtml(const std::string& directory_path, const std::string& uri_path) {
 	DIR* dir = opendir(directory_path.c_str());
 	if (!dir) {
-		return "<html><body><h1>403 Forbidden</h1><p>Cannot open directory</p></body></html>";
+		return "";
 	}
 
 	std::stringstream html;
@@ -87,9 +88,11 @@ static std::string generateAutoIndexHtml(const std::string& directory_path, cons
 }
 
 // Called from getResponseMessage after selecting the methods
-// Set default values for connection and content-type initially
+// Set default values for content-type initially
 // After detecting the path and testing it's type
 // proceeds to get correct types if necessary
+// For auto index, the directory is tested inside generateAutoIndexHtml
+// since it needs to open it, if it fails we get "" and run getErrorPage
 HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
@@ -112,9 +115,16 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, co
 				response.body = readFile(index_path);
 				response.content_type = getContentType(index_path);
 			} else if (location.autoindex) {
-				response.code = 200;
-				response.description = codesIndex.getDescription(200);
-				response.body = generateAutoIndexHtml(local_path, request.path);
+				std::string autoindex_body = generateAutoIndexHtml(local_path, request.path);
+				if (!autoindex_body.empty()) {
+					response.code = 200;
+					response.description = codesIndex.getDescription(200);
+					response.body = autoindex_body;
+				} else {
+					response.code = 403;
+					response.description = codesIndex.getDescription(403);
+					response.body = getErrorPage(403, server);
+				}
 			} else {
 				response.code = 403;
 				response.description = codesIndex.getDescription(403);
@@ -140,6 +150,12 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, co
 	return response;
 }
 
+// For post request we focus on sending a file to be saved at the location
+// set to upload enabled inside the conf file
+// If upload_enabled is false 403 Forbidden
+// If no filename provided 400 Bad Request
+// If we fail to stream the content to our ofstream 500 Internal Server Error
+// 
 HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
@@ -167,6 +183,10 @@ HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, c
 
 	std::string target_path = joinPath(location.upload_store, filename);
 
+	// Opens an output file stream at the set path
+	// using the flags:
+	// std::ios::binary to prevent systems from detecting it as text and adding data to it
+	// std::ios::trunc will truncate if the file already exists, replacing it.
 	std::ofstream out_file(target_path.c_str(), std::ios::binary | std::ios::trunc);
 	if (!out_file.is_open()) {
 		response.code = 500;
@@ -183,10 +203,11 @@ HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, c
 	body << "<html>\n<head><title>201 Created</title></head>\n"
 		 << "<body>\n<center><h1>201 Created</h1></center>\n"
 		 << "<center>Uploaded to " << request.path << "</center>\n"
-		 << "<hr><center>Webserv/1.0</center>\n</body>\n</html>";
+		 << "<hr><center>" << getServerSignature() << "</center>\n</body>\n</html>";
 
 	response.code = 201;
 	response.description = codesIndex.getDescription(201);
+	response.redirect_location = request.path;
 	response.body = body.str();
 	response.content_length = response.body.size();
 	return response;
@@ -208,7 +229,7 @@ HttpResponse buildRedirectResponse(ServerConfig& server, LocationConfig& locatio
 		 << "<body>\n<center><h1>" << response.code << " " << response.description << "</h1></center>\n"
 		 << "<center>Redirecting to <a href=\"" << location.redirect_target << "\">"
 		 << location.redirect_target << "</a></center>\n"
-		 << "<hr><center>Webserv/1.0</center>\n</body>\n</html>";
+		 << "<hr><center>" << getServerSignature() << "</center>\n</body>\n</html>";
 
 	response.body = body.str();
 	response.content_length = response.body.size();
