@@ -8,8 +8,7 @@
 #include <unistd.h>
 
 // Joins two path segments with exactly one '/' between them, regardless of
-// whether either side already has one. Replaces the ad-hoc slash checks that
-// used to live inline wherever a root/store was combined with a request path.
+// whether either side already has one.
 static std::string joinPath(const std::string& a, const std::string& b) {
 	if (a.empty())
 		return b;
@@ -28,7 +27,7 @@ static std::string joinPath(const std::string& a, const std::string& b) {
 
 // Extracts the last path segment of the request, relative to the location's
 // prefix, to use as the uploaded file's name. Only the basename is kept
-// (anything before the last '/') so a request path can never point the write
+// (anything after the last '/') so a request path can never point the write
 // outside of upload_store, even if it contains "..".
 static std::string extractUploadFilename(const LocationConfig& location, const HttpRequest& request) {
 	std::string relative = request.path;
@@ -45,6 +44,8 @@ static std::string extractUploadFilename(const LocationConfig& location, const H
 	return filename;
 }
 
+// First checks if the directory is accessible and exists, if not create a hardcoded 403 page
+// Proceeds to generate the autoindex page
 static std::string generateAutoIndexHtml(const std::string& directory_path, const std::string& uri_path) {
 	DIR* dir = opendir(directory_path.c_str());
 	if (!dir) {
@@ -85,12 +86,16 @@ static std::string generateAutoIndexHtml(const std::string& directory_path, cons
 	return html.str();
 }
 
+// Called from getResponseMessage after selecting the methods
+// Set default values for connection and content-type initially
+// After detecting the path and testing it's type
+// proceeds to get correct types if necessary
 HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
 
 	response.server_name = server.server_name;
-	response.connection = "keep-alive";
+	response.connection = determineConnection(request);
 	response.content_type = "text/html; charset=UTF-8";
 
 	std::string local_path = joinPath(location.root, request.path);
@@ -105,6 +110,7 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, co
 				response.code = 200;
 				response.description = codesIndex.getDescription(200);
 				response.body = readFile(index_path);
+				response.content_type = getContentType(index_path);
 			} else if (location.autoindex) {
 				response.code = 200;
 				response.description = codesIndex.getDescription(200);
@@ -118,6 +124,7 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, co
 			response.code = 200;
 			response.description = codesIndex.getDescription(200);
 			response.body = readFile(local_path);
+			response.content_type = getContentType(local_path);
 		} else {
 			response.code = 403;
 			response.description = codesIndex.getDescription(403);
@@ -138,7 +145,7 @@ HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, c
 	HttpResponseCodesIndex codesIndex;
 
 	response.server_name = server.server_name;
-	response.connection = "keep-alive";
+	response.connection = determineConnection(request);
 	response.content_type = "text/html; charset=UTF-8";
 
 	if (!location.upload_enabled) {
@@ -185,12 +192,12 @@ HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, c
 	return response;
 }
 
-HttpResponse buildRedirectResponse(ServerConfig& server, LocationConfig& location) {
+HttpResponse buildRedirectResponse(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
 
 	response.server_name = server.server_name;
-	response.connection = "keep-alive";
+	response.connection = determineConnection(request);
 	response.content_type = "text/html; charset=UTF-8";
 	response.code = location.redirect_code;
 	response.description = codesIndex.getDescription(location.redirect_code);
@@ -213,7 +220,7 @@ HttpResponse handleDeleteRequest(ServerConfig& server, LocationConfig& location,
 	HttpResponseCodesIndex codesIndex;
 
 	response.server_name = server.server_name;
-	response.connection = "keep-alive";
+	response.connection = determineConnection(request);
 	response.content_type = "text/html; charset=UTF-8";
 
 	std::string local_path = joinPath(location.root, request.path);

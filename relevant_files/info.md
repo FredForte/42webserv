@@ -65,3 +65,12 @@ Our chuncked-decoding logic is in `HttpRequestParser` and is spec-correct:
 - Hex size + chunk-extensions: `strtoul(...,16)` parses multi-digit hex and stops at `;`, so `c;ext=ignored\r\n` is handled.
 - Embedded `\r\n` inside the chunk data is handled as expected because the chunk-data is is sliced by exact byte count rather than scanning for a line ending, so a payload containing the eof inside its body will come through as content.
 - Data split across multiple `recv()` calls, our webserv wait for a full chunk before treating the request.
+
+# Content-Type
+We follow a file extension detection path, lowercasing it before the tests to prevent case sensitive edge-cases.
+`getContentType(path)` extracts the file extension using `static getFileExtension()` that looks it up in a small media type extension (MIME) table and apends `; charset=UTF-8`for th etext-bases types. Unrecognized extensions fall back to `application/octet-stream`. (that is the usual fallback of server).
+
+# Connection
+We are using `determineConnection(const HttpRequest &req)` to decide the connection type to send on our responses, HTTP 1.1 default to `keep-alive`, HTTP 1.0 defaults to `close`, and we are using the clients `Connection` to override the defaults. The strucute on the `buildRedirectReponse` had to receive the HttpRequest as an addition, not that clean, but it is working as expected.
+
+Our main needs to also read the connection flag in order to close or keep the conneciton open for the responded client. 

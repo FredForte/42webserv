@@ -368,7 +368,8 @@ int main(int argc, char** argv) {
                             // way, so this is checked ahead of the methods list
                             // instead of going through it.
                             HttpResponse responseMessage =
-                                buildRedirectResponse(config[0], *responseLocation);
+                                buildRedirectResponse(config[0], *responseLocation,
+                                                       client_connection.request_data);
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
                         } else if (findStringOnVector(responseLocation->methods,
