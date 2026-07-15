@@ -1,6 +1,7 @@
 #include "../include/cgi.hpp"
 #include "../include/program_flow_utils.hpp"
 #include "../include/socket_utils.hpp"
+#include <cerrno>
 #include <cstddef>
 #include <cstring>
 #include <sys/epoll.h>

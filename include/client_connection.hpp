@@ -1,8 +1,9 @@
 #ifndef CLIENT_CONNECTION_HPP
 #define CLIENT_CONNECTION_HPP
 
+#include "./cgi.hpp"
+#include "./parser/ConfigTypes.hpp"
 #include "./parser/HttpRequest.hpp"
-#include "cgi.hpp"
 #include <string>
 
 enum client_connection_enum {

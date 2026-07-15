@@ -5,6 +5,7 @@
 #include <netdb.h> // so we can have addrinfo struct
 #include <string>
 
+#include <cerrno>
 #include <fcntl.h> // to set fd to non-blocking
 
 // Creates, set its options and bind the socket

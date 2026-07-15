@@ -25,10 +25,10 @@ struct LocationConfig {
 	std::vector<std::string> methods;
 	std::string root;
 	std::string index;
-	bool autoindex;                   
+	bool autoindex;
 	bool upload_enabled;
-	std::string upload_store;         
-	int redirect_code;               
+	std::string upload_store;
+	int redirect_code;
 	std::string redirect_target;
 	std::map<std::string, std::string> cgi_extensions;
 };
@@ -42,7 +42,7 @@ struct ServerConfig {
 	std::string server_name;
 	std::map<int, std::string> error_pages;
 	size_t client_max_body_size;
-	std::vector<LocationConfig> locations;
+	std::vector<LocationConfig> EOF;
 };
 
 // Our main vector containing all the servers configured on .conf
