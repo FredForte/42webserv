@@ -64,36 +64,35 @@ ServerConfig* get_server_config_instance_based_on_listen_fd(
     return it->second;
 }
 
-// done: Julio: think about having multiple listening fd's ready based on config file configuration
-// done: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
-//              can properly answer
 // todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
 // todo: Fred: Fill in all HTTP response status codes. todo: Fred: our server must have default
-// error pages if none are provided. todo: Fred: Clients must be able to upload files.
+//             error pages if none are provided. todo: Fred: Clients must be able to upload files.
 // todo: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
-// server to ensure it remains available at all times. todo: Both: Your server must be able to
-// listen to multiple ports to deliver different content (see
-//              Configuration file).
+//             server to ensure it remains available at all times.
 // todo: Fred: Set the maximum allowed size for client request bodies.
 // todo: Fred: HTTP redirection.
 // todo: Fred: Enabling or disabling directory listing.
 // todo: Fred: Default file to serve when the requested resource is a directory.
 // todo: Fred: Uploading files from the clients to the server is authorized, and storage location
-//              is provided.
+//             is provided.
 // todo: Fred: Test chunk sizes are in hexadecimal.
 // todo: Fred: Test chunk limit read between calls.
 // todo: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
-// CRLF end line. todo: Fred: Set limit to how much we can read.
+//             CRLF end line. todo: Fred: Set limit to how much we can read.
+// ---
 // todo: Julio: Have a careful look at the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
 // todo: Julio: (hardcore) If CGI and Post, send data to CGI's stdin
 // todo: Julio: CGI returns structured content
 // todo: Julio: Test: The CGI should be run in the correct directory for relative path file access.
-// todo: Both: You must provide configuration files and default files to test and demonstrate that
-//              every feature works during the evaluation.
-// todo: Both: Test with 42 tester
 // todo: Julio: Support cookies and session management (provide simple examples).
+// ---
+// todo: Both: Your server must be able to listen to multiple ports to deliver different content
+//             (see Configuration file).
+// todo: Both: You must provide configuration files and default files to test and demonstrate that
+//             every feature works during the evaluation.
+// todo: Both: Test with 42 tester
 // todo: Both: Readme.
 int main(int argc, char** argv) {
 

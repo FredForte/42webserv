@@ -28,7 +28,7 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
     if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, fd_to_add, &event_settings) == -1) {
         fail_and_exit_with_message(
             -1, std::string("Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
-                    + std::strerrod MAINr(errno));
+                    + std::strerror(errno));
     }
 
     ServerConfig* server_config_ptr =
