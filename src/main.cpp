@@ -1,5 +1,6 @@
 #include "../include/cgi.hpp" // to have "accept()"
 #include "../include/client_connection.hpp"
+#include "../include/main_functions.hpp"
 #include "../include/parser/ConfigParser.hpp"
 #include "../include/parser/HttpRequest.hpp"
 #include "../include/parser/HttpRequestParser.hpp"
@@ -175,45 +176,9 @@ int main(int argc, char** argv) {
 
             // new connections case
             if (is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd)) {
-
-                sockaddr_storage their_addr;
-                socklen_t addr_size = sizeof(their_addr);
-
-                int fd_to_add =
-                    accept(this_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
-
-                if (fd_to_add == -1) {
-                    fail_and_exit_with_message(1, std::strerror(errno));
-                }
-
-                make_fd_non_blocking(fd_to_add);
-
-                event_settings.events = EPOLLIN;
-                event_settings.data.fd = fd_to_add;
-
-                if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, fd_to_add, &event_settings) == -1) {
-                    fail_and_exit_with_message(
-                        -1, std::string(
-                                "Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
-                                + std::strerror(errno));
-                }
-
-                ServerConfig* server_config_ptr = get_server_config_instance_based_on_listen_fd(
-                    listen_fd_to_server_config_map, this_fd);
-
-                client_connection_struct client_connection;
-                client_connection.client_fd = fd_to_add;
-                client_connection.ready_to_respond = false;
-                client_connection.client_connection_type = STANDARD;
-                client_connection.cgi_instance.client_fd = fd_to_add;
-                client_connection.cgi_instance.cgi_fd = 0;
-                client_connection.cgi_instance.epoll_instance = epoll_instance;
-                client_connection.ServerConfig_ptr = server_config_ptr;
-
-                client_map.insert(std::make_pair(fd_to_add, client_connection));
-
-                fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
-
+                new_connections_func(epoll_instance, event_settings, this_fd,
+                                     listen_fd_to_server_config_map, client_map,
+                                     fd_to_ServerConfig_ptr_map);
                 continue;
             }
 
