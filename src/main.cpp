@@ -401,7 +401,7 @@ int main(int argc, char** argv) {
                             // getResponseMessage dispatches on request_data.method
                             // internally (GET/POST/DELETE each have their own handler
                             // in response_handlers.cpp).
-                            HttpResponse responseMessage = getResponseMessage(
+                            HttpResponse responseMessage = (
                                 200, client_connection.ServerConfig_ptr, *responseLocation, client_connection.request_data);
 
                             client_connection.output_buffer =
