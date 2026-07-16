@@ -219,6 +219,7 @@ std::string getErrorPage(int code, ServerConfig& server) {
 // That handle pre-flight internal code control
 // handlePostRequest (Post/Get/Delete) will further define the right 
 // return codes for the responses that are dispatched by this router.
+// forcing new commit
 HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig responseLocation, const HttpRequest& request) {
 	HttpResponseCodesIndex codesIndex;
 
