@@ -6,6 +6,7 @@
 #include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
 #include "../include/response/HttpResponse.hpp"
+#include "../include/response/response_handlers.hpp"
 #include "../include/socket_utils.hpp"
 #include "../include/utils/main_functions_utils.hpp"
 #include "../include/utils/utils_config_file.hpp"
@@ -13,11 +14,6 @@
 #include <cstring>
 #include <iostream>
 #include <map>
-#include "../include/cgi.hpp" // to have "accept()"
-#include "../include/parser/ConfigParser.hpp"
-#include "../include/response/response_handlers.hpp"
-#include "../include/socket_utils.hpp"
-#include "../include/utils/utils_config_file.hpp"
 #include <sstream>
 #include <stdexcept>
 #include <sys/epoll.h>
@@ -57,14 +53,13 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 }
 
 // todo: Julio: think about having multiple listening fd's ready based on config file configuration
-// todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it can properly answer
-// done: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
-// done: Fred: Fill in all HTTP response status codes.
-// done: Fred: our server must have default error pages if none are provided.
-// done: Fred: Clients must be able to upload files.
-// done: Fred: You need at least the GET, POST, and DELETE methods.
-// todo: Both: Stress test your server to ensure it remains available at all times.
-// todo: Both: Your server must be able to listen to multiple ports to deliver different content (see
+// todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
+// can properly answer done: Fred: Fix content length to whole body HTTP response (/r/n/r/n) done:
+// Fred: Fill in all HTTP response status codes. done: Fred: our server must have default error
+// pages if none are provided. done: Fred: Clients must be able to upload files. done: Fred: You
+// need at least the GET, POST, and DELETE methods. todo: Both: Stress test your server to ensure it
+// remains available at all times. todo: Both: Your server must be able to listen to multiple ports
+// to deliver different content (see
 //              Configuration file).
 // todo: Fred: Set the maximum allowed size for client request bodies.
 // todo: Fred: HTTP redirection.
@@ -84,9 +79,9 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
 //              is provided.
 // done: Fred: Test chunk sizes are in hexadecimal.
 // done: Fred: Test chunk limit read between calls.
-// done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a CRLF end line.
-// todo: Fred: Set limit to how much we can read.
-// todo: Julio: Have a careful look at the environment variables involved in the web server-CGI
+// done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
+// CRLF end line. todo: Fred: Set limit to how much we can read. todo: Julio: Have a careful look at
+// the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
 // todo: Julio: (hardcore) If CGI and Post, send data to CGI's stdin
@@ -378,16 +373,18 @@ int main(int argc, char** argv) {
 
                     if (responseLocation) {
                         if (responseLocation->redirect_code != 0) {
+
                             // A "return" location answers every method the same
                             // way, so this is checked ahead of the methods list
                             // instead of going through it.
-                            HttpResponse responseMessage =
-                                buildRedirectResponse(config[0], *responseLocation,
-                                                       client_connection.request_data);
+                            HttpResponse responseMessage = buildRedirectResponse(
+                                server_config_vec[0], *responseLocation, client_connection.request_data);
+
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
+
                         } else if (findStringOnVector(responseLocation->methods,
-                                               client_connection.request_data.method)) {
+                                                      client_connection.request_data.method)) {
                             // std::cout << "Found requested method: "
                             //           << client_connection.request_data.method << " on found
                             //           location"
@@ -404,21 +401,23 @@ int main(int argc, char** argv) {
                             // getResponseMessage dispatches on request_data.method
                             // internally (GET/POST/DELETE each have their own handler
                             // in response_handlers.cpp).
-                            HttpResponse responseMessage =
-                                getResponseMessage(200, config[0], *responseLocation, client_connection.request_data);
+                            HttpResponse responseMessage = getResponseMessage(
+                                200, client_connection.ServerConfig_ptr, *responseLocation, client_connection.request_data);
+
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
+
                         } else {
-                            HttpResponse responseMessage =
-                                getResponseMessage(405, config[0], *responseLocation, client_connection.request_data);
+                            HttpResponse responseMessage = getResponseMessage(
+                                405, client_connection.ServerConfig_ptr, *responseLocation, client_connection.request_data);
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
                         }
                     } else {
-                        HttpResponse responseMessage =
-                            getResponseMessage(404, config[0], LocationConfig(), client_connection.request_data);
-                        client_connection.output_buffer =
-                            parseResponseToOutPut(responseMessage);
+                        HttpResponse responseMessage = getResponseMessage(
+                            404, client_connection.ServerConfig_ptr, LocationConfig(), client_connection.request_data);
+
+                        client_connection.output_buffer = parseResponseToOutPut(responseMessage);
                     }
 
                     client_connection.ready_to_respond = true;

@@ -9,7 +9,6 @@
 #include <sys/wait.h>  // waitpid() includes
 #include <unistd.h>
 #include <vector>
-#include <cerrno>
 
 // Can throw exception
 int execute_cgi(cgi_instance_struct& cgi_instance) {

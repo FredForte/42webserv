@@ -12,7 +12,7 @@ INCLUDES = -I.
 SRCS = main.cpp program_flow_utils.cpp  socket_utils.cpp cgi.cpp \
 	/utils/utils_config_file.cpp /parser/ConfigParser.cpp /parser/HttpRequestParser.cpp \
 	/parser/Tokenizer.cpp /response/HttpResponseCodesIndex.cpp main_functions.cpp \
-	/utils/main_functions_utils.cpp	/parser/Tokenizer.cpp \ 
+	/utils/main_functions_utils.cpp	/parser/Tokenizer.cpp \
 	/response/HttpResponseCodesIndex.cpp /response/response_handlers.cpp
 
 
