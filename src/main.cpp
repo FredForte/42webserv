@@ -61,9 +61,9 @@ int main(int argc, char** argv) {
     std::string source = readFile(configuration_file_path);
     ConfigParser parser(source);
     Config server_config_vec = parser.parse();
-    // for (size_t i = 0; i < config_vec.size(); i++) {
-    //     printServer(config_vec[i]);
-    // }
+    for (size_t i = 0; i < server_config_vec.size(); i++) {
+        printServer(server_config_vec[i]);
+    }
 
     epoll_event event_settings;
     // Creates an epoll instance, and avoids leaking its instance by using the only valid
@@ -341,7 +341,8 @@ int main(int argc, char** argv) {
                             if (client_connection.request_data.method == "GET") {
                                 // create response for get method
                                 HttpResponse responseMessage = getResponseMessage(
-                                    200, server_config_vec[0], *responseLocation);
+                                    200, client_connection.ServerConfig_ptr, *responseLocation);
+
                                 client_connection.output_buffer =
                                     parseResponseToOutPut(responseMessage);
                             }

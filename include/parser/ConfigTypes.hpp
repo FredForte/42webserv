@@ -42,7 +42,7 @@ struct ServerConfig {
 	std::string server_name;
 	std::map<int, std::string> error_pages;
 	size_t client_max_body_size;
-	std::vector<LocationConfig> EOF;
+	std::vector<LocationConfig> locations;
 };
 
 // Our main vector containing all the servers configured on .conf

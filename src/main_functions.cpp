@@ -4,6 +4,7 @@
 #include "../include/utils/main_functions_utils.hpp"
 #include <cerrno>
 #include <cstring>
+#include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
@@ -41,6 +42,10 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
     client_connection.cgi_instance.client_fd = fd_to_add;
     client_connection.cgi_instance.cgi_fd = 0;
     client_connection.cgi_instance.epoll_instance = epoll_instance;
+
+    std::stringstream ss;
+    ss << client_connection.client_fd;
+    client_connection.cookie_id = ss.str();
     client_connection.ServerConfig_ptr = server_config_ptr;
 
     client_map.insert(std::make_pair(fd_to_add, client_connection));

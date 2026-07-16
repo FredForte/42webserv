@@ -85,18 +85,20 @@ LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &re
 	return NULL;
 }
 
-HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig responseLocation) {
+HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig responseLocation) {
 	HttpResponse response;
 	response.code = code;
 
 	HttpResponseCodesIndex codesIndex; // todo: make a class for the codes and description
 
 	std::map<int, std::string>::iterator descriptionIndex = codesIndex.responseCodesDescriptions.find(code);
+
 	if (descriptionIndex != codesIndex.responseCodesDescriptions.end()) {
 		response.description = descriptionIndex->second;
 	} else
 		response.description = "Error getting description";
-	response.server_name = server.server_name;
+
+	response.server_name = server->server_name;
 	response.content_type = "Still need to figure this out"; // todo: figure this out
 
 	std::string responseBody = readFile(responseLocation.root.append(responseLocation.index));

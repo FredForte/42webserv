@@ -5,6 +5,7 @@
 #include "./parser/ConfigTypes.hpp"
 #include "./parser/HttpRequest.hpp"
 #include <string>
+#include <map>
 
 enum client_connection_enum {
     STANDARD,
@@ -19,6 +20,8 @@ struct client_connection_struct {
     client_connection_enum client_connection_type;
     cgi_instance_struct cgi_instance;
     HttpRequest request_data;
+    std::string cookie_id;
+    std::map<std::string, std::string> cookie_data;
     ServerConfig* ServerConfig_ptr;
 };
 
