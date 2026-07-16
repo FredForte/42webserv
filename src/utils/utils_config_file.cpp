@@ -36,6 +36,8 @@ void printLocation(const LocationConfig& location) {
 		std::cout << " " << it->first << "->" << it->second;
 	std::cout << "\n";
 
+	std::cout << "    cgi_timeout: " << location.cgi_timeout << "\n";
+
 	std::cout << "  }\n";
 }
 
@@ -97,8 +99,8 @@ LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &re
 }
 
 // Returns the substring after the last '.' in the file's basename (not the
-// whole path, so a dot in a directory name like "my.folder/file" is
-// ignored), lowercased so ".JPG" and ".jpg" resolve to the same MIME type.
+// whole path, so a dot in a directory name like "my.folder/file" is ignored)
+// lowercased so ".JPG" and ".jpg" resolve to the same MIME type.
 static std::string getFileExtension(const std::string& path) {
 	size_t last_slash = path.find_last_of('/');
 	std::string basename = (last_slash == std::string::npos) ? path : path.substr(last_slash + 1);
@@ -117,9 +119,9 @@ static std::string getFileExtension(const std::string& path) {
 // Maps a served file's extension to its MIME type.
 // Text-based types get "; charset=UTF-8" appended
 // binary types (images, PDF) don't, since charset doesn't apply to them.
-// Anything not in the table falls back to application/octet-stream - the standard "don't
-// try to render this" signal, safer than guessing text/html for a binary
-// file we don't recognize.
+// Anything not in the table falls back to application/octet-stream
+// which is the standard "don't try to render this" signal,
+// safer then guessing text/html for a binary file we don't recognize.
 std::string getContentType(const std::string& path) {
 	std::string extension = getFileExtension(path);
 
@@ -173,15 +175,13 @@ bool isCloseConnection(const std::string& connection) {
 	return connection == "close";
 }
 
-// Cosmetic footer signature stamped on generated HTML bodies (error pages,
-// upload/redirect confirmations) - unrelated to the config's server_name,
-// which goes into the Server: response header instead.
+// Cosmetic footer signature stamped on generated HTML bodies
 std::string getServerSignature() {
 	return "Webserv/1.0";
 }
 
-// Here i am creating a page from scratch if its not found on the error pages path
-// using the code and description on the http codes control object
+// Creates a page from scratch if its not found on the error pages path
+// using the code and description on the http codes control object.
 // Not static: shared by the per-method handlers in response_handlers.cpp so every
 // method reports errors (403/404/500/...) the same way.
 std::string getErrorPage(int code, ServerConfig& server) {
@@ -242,18 +242,13 @@ HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig r
 		return handleDeleteRequest(*server, responseLocation, request);
 
 	HttpResponse response;
-	response.code = code;
-
-	response.description = codesIndex.getDescription(code);
 	response.server_name = server->server_name;
-	response.content_type = "Still need to figure this out"; // todo: figure this out
-
-	std::string responseBody = readFile(responseLocation.root.append(responseLocation.index));
-	response.content_length = responseBody.size() + 4;
-	// response.connection = "close"; // todo: get this info
-	response.connection = "keep-alive";
-	response.body = responseBody;
-
+	response.connection = determineConnection(request);
+	response.content_type = "text/html; charset=UTF-8";
+	response.code = 405;
+	response.description = codesIndex.getDescription(405);
+	response.body = getErrorPage(405, *server);
+	response.content_length = response.body.size();
 	return response;
 }
 
@@ -282,8 +277,174 @@ static std::string getHttpDateHeader() {
     return ""; // Fallback if formatting fails
 }
 
+
+// Builds the cgi enviroment for a request, as a vector of KEY=VALUE strings
+// ready to become execve's envp.
+// The caller should turn them into NULL-terminatd char* array.
+// Request headers are passed through as HTTP_<NAME>, uppercased and '-' to '_',
+// except Content-Type and Content-Length, which turn into CONTENT_TYPE and 
+// CONTENT-LENGTH without the HTTP_ prefix.
+// SCRIPT_FILENAME and PATH_TRANSLATED ( the script's on- disk path) and 
+// SCRIPT_NAME / PATH_INFO, both sets need the resoled script location
+// which comes from CGI dispatch.
+std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server) {
+	std::vector<std::string> env;
+
+	// Server identity and protocol constants.
+	env.push_back("GATEWAY_INTERFACE=CGI/1.1");
+	env.push_back("SERVER_PROTOCOL=HTTP/1.1");
+	env.push_back("SERVER_SOFTWARE=" + getServerSignature());
+	env.push_back("SERVER_NAME=" + server.server_name);
+
+	if (!server.listens.empty()) {
+		std::stringstream port_ss;
+		port_ss << server.listens[0].port;
+		env.push_back("SERVER_PORT=" + port_ss.str());
+	}
+
+	// Request line. SCRIPT_NAME/PATH_INFO both carry the request path for now
+	env.push_back("REQUEST_METHOD=" + request.method);
+	env.push_back("QUERY_STRING=" + request.query_string);
+	env.push_back("SCRIPT_NAME=" + request.path);
+	env.push_back("PATH_INFO=" + request.path);
+
+	// Body framing. CONTENT_LENGTH is always set (0 when there is no body) so a
+	// script can rely on it; CONTENT_TYPE mirrors the request header if present.
+	std::stringstream len_ss;
+	len_ss << request.body.size();
+	env.push_back("CONTENT_LENGTH=" + len_ss.str());
+
+	std::map<std::string, std::string>::const_iterator ct = request.headers.find("content-type");
+	if (ct != request.headers.end())
+		env.push_back("CONTENT_TYPE=" + ct->second);
+
+	// Every other request header becomes HTTP_<NAME> (e.g. cookie -> HTTP_COOKIE).
+	for (std::map<std::string, std::string>::const_iterator it = request.headers.begin();
+		 it != request.headers.end(); ++it) {
+		if (it->first == "content-type" || it->first == "content-length")
+			continue; // already exposed above without the HTTP_ prefix
+		std::string key = "HTTP_";
+		for (size_t i = 0; i < it->first.size(); i++) {
+			char c = it->first[i];
+			if (c == '-')
+				c = '_';
+			else
+				c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+			key += c;
+		}
+		env.push_back(key + "=" + it->second);
+	}
+
+	return env;
+}
+
+
+// Parses a cgi script's out into our HttpResponse
+// Its response can be consumed the same way as the other responses
+// through parseReponseToOutPut.
+// Status: code + description
+// Content-Type: content_type
+// Location: redirect_location (302 when no status)
+// the other headers (Set-Cooki, X-*, ...) is saved in extra_headers
+// so it gets appended to the client response.
+// When no header/body separator is detected, everything is treated as
+// a bare body (default 200 / text-html), so a script that only prints
+// text still works using this case.
+HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& server,
+                              const HttpRequest& request) {
+	HttpResponseCodesIndex codesIndex;
+	HttpResponse response;
+
+	response.server_name = server.server_name;
+	response.connection = determineConnection(request);
+	response.content_type = "text/html; charset=UTF-8";
+	response.code = 200;
+	response.description = codesIndex.getDescription(200);
+
+	// Locate the header/body separator, both CRLF and bare LF.
+	std::string separator = "\r\n\r\n";
+	size_t split = cgi_output.find(separator);
+	if (split == std::string::npos) {
+		separator = "\n\n";
+		split = cgi_output.find(separator);
+	}
+
+	// No separator == no CGI header block at all: treat it all as the body.
+	if (split == std::string::npos) {
+		response.body = cgi_output;
+		response.content_length = response.body.size();
+		return response;
+	}
+
+	std::string header_block = cgi_output.substr(0, split);
+	response.body = cgi_output.substr(split + separator.length());
+	response.content_length = response.body.size();
+
+	bool status_seen = false;
+	bool location_seen = false;
+
+	std::stringstream headers(header_block);
+	std::string line;
+	while (std::getline(headers, line)) {
+		if (!line.empty() && line[line.size() - 1] == '\r')
+			line.erase(line.size() - 1);       // drop trailing CR when the block used CRLF
+		if (line.empty())
+			continue;
+
+		size_t colon = line.find(':');
+		if (colon == std::string::npos)
+			continue;                          // not a header line, skip defensively
+
+		std::string name = line.substr(0, colon);
+		size_t value_start = colon + 1;
+		while (value_start < line.size()
+			   && std::isspace(static_cast<unsigned char>(line[value_start])))
+			value_start++;
+		std::string value = line.substr(value_start);
+
+		std::string lower_name = name;
+		for (size_t i = 0; i < lower_name.size(); i++)
+			lower_name[i] =
+				static_cast<char>(std::tolower(static_cast<unsigned char>(lower_name[i])));
+
+		if (lower_name == "status") {
+			// "302 Found" or just "302": the leading integer is the code, and
+			// whatever follows (if anything) is the reason phrase.
+			std::stringstream status_ss(value);
+			int code = 0;
+			status_ss >> code;
+			if (code != 0) {
+				response.code = code;
+				std::string reason;
+				std::getline(status_ss, reason);
+				size_t r = 0;
+				while (r < reason.size() && std::isspace(static_cast<unsigned char>(reason[r])))
+					r++;
+				reason = reason.substr(r);
+				response.description = reason.empty() ? codesIndex.getDescription(code) : reason;
+				status_seen = true;
+			}
+		} else if (lower_name == "content-type") {
+			response.content_type = value;
+		} else if (lower_name == "location") {
+			response.redirect_location = value;
+			location_seen = true;
+		} else {
+			response.extra_headers[name] = value;
+		}
+	}
+
+	// A CGI "local redirect" (Location without an explicit Status) defaults to 302.
+	if (location_seen && !status_seen) {
+		response.code = 302;
+		response.description = codesIndex.getDescription(302);
+	}
+
+	return response;
+}
+
 // Very procedural and illustrative way of creating our response
-// header and body, I've left it spaced out as much as possible
+// header and body, I left it spaced out as much as possible
 // to make it clear where each header line goes and how its
 // being set here
 std::string parseResponseToOutPut(HttpResponse response) {
@@ -329,8 +490,18 @@ std::string parseResponseToOutPut(HttpResponse response) {
 	output.append("Connection: ");
 	output.append(response.connection);
 
-	output.append("\r\n"
-				  "\r\n");
+	output.append("\r\n");
+
+	// Pass-through extra headers (Set-Cookie from a CGI script)
+	for (std::map<std::string, std::string>::const_iterator it = response.extra_headers.begin();
+		 it != response.extra_headers.end(); ++it) {
+		output.append(it->first);
+		output.append(": ");
+		output.append(it->second);
+		output.append("\r\n");
+	}
+
+	output.append("\r\n");
 
 	output.append(response.body);
 

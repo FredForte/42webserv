@@ -58,6 +58,7 @@ LocationConfig ConfigParser::parseLocation(const std::string& path) {
 	location.autoindex = false;
 	location.upload_enabled = false;
 	location.redirect_code = 0;
+	location.cgi_timeout = CGI_TIMEOUT_DEFAULT_SECONDS;
 
 	expect(TOKEN_LBRACE);
 
@@ -78,6 +79,8 @@ LocationConfig ConfigParser::parseLocation(const std::string& path) {
 			parseReturn(location);
 		else if (directive == "cgi")
 			parseCgi(location);
+		else if (directive == "cgi_timeout")
+			parseCgiTimeout(location);
 	}
 
 	expect(TOKEN_RBRACE);
@@ -159,4 +162,10 @@ void ConfigParser::parseCgi(LocationConfig& location) {
 	std::string interpreter = expectWord();
 	expect(TOKEN_SEMICOLON);
 	location.cgi_extensions[extension] = interpreter;
+}
+
+void ConfigParser::parseCgiTimeout(LocationConfig& location) {
+	std::string value = expectWord();
+	expect(TOKEN_SEMICOLON);
+	location.cgi_timeout = static_cast<size_t>(std::atol(value.c_str()));
 }

@@ -33,6 +33,8 @@ static void printLocation(const LocationConfig& location) {
 		std::cout << " " << it->first << "->" << it->second;
 	std::cout << "\n";
 
+	std::cout << "    cgi_timeout: " << location.cgi_timeout << "\n";
+
 	std::cout << "  }\n";
 }
 

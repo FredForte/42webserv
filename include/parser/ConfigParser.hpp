@@ -31,6 +31,7 @@ private:
 	void parseUploadStore(LocationConfig& location);
 	void parseReturn(LocationConfig& location);
 	void parseCgi(LocationConfig& location);
+	void parseCgiTimeout(LocationConfig& location);
 
 	std::string expectWord();  // consumes a TOKEN_WORD, returns its value
 	void expect(TokenType type); //todo consumes the next token (type unchecked for now)

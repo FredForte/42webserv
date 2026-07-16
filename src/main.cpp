@@ -196,18 +196,15 @@ int main(int argc, char** argv) {
                                     + std::strerror(errno));
                     }
 
-                    std::stringstream ss_http_response;
+                    // Turn the CGI script's raw output (its own header block +
+                    // body) into a proper HttpResponse, then serialize it the
+                    // same way every other response goes out.
+                    HttpResponse cgi_response = parseCgiResponse(
+                        client_connection->cgi_instance.cgi_response,
+                        *client_connection->ServerConfig_ptr,
+                        client_connection->request_data);
 
-                    ss_http_response << "HTTP/1.1 200 OK\r\n"
-                                        "Content-Type: text/html\r\n";
-
-                    ss_http_response << "Content-Length: "
-                                     << client_connection->cgi_instance.cgi_response.length()
-                                     << "\r\n"
-                                        "\r\n"
-                                     << client_connection->cgi_instance.cgi_response;
-
-                    client_connection->output_buffer.append(ss_http_response.str());
+                    client_connection->output_buffer.append(parseResponseToOutPut(cgi_response));
 
                     epoll_event event_settings;
                     event_settings.events = EPOLLOUT;

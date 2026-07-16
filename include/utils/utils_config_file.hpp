@@ -14,6 +14,8 @@ std::string determineConnection(const HttpRequest& request);
 std::string getContentType(const std::string& path);
 std::string getErrorPage(int code, ServerConfig& server);
 std::string getServerSignature();
+std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server);
+HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& server, const HttpRequest& request);
 std::string parseResponseToOutPut(HttpResponse response);
 
 #endif

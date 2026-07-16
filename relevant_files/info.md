@@ -73,7 +73,74 @@ We follow a file extension detection path, lowercasing it before the tests to pr
 # Connection
 We are using `determineConnection(const HttpRequest &req)` to decide the connection type to send on our responses, HTTP 1.1 default to `keep-alive`, HTTP 1.0 defaults to `close`, and we are using the clients `Connection` to override the defaults. The strucute on the `buildRedirectReponse` had to receive the HttpRequest as an addition, not that clean, but it is working as expected.
 
-Our main needs to also read the connection flag in order to close or keep the conneciton open for the responded client. 
+Our main needs to also read the connection flag in order to close or keep the conneciton open for the responded client.
+
+# Cgi Environment
+We use the function `std::vector<std::string> buildCgiEnv(request, server)` at `utils_config_file.cpp`
+It works with full CGI/1.1 meta-variable set + `HTTP_*` headers, same `KEY=VALUE` vector shape `excecute_cgi` already uses for argv.
+
+## Cgi Env Integration
+- Get the env in and onto `execve`, call `buildCgiEnv` in dispatch (where the request lives) and stash it on the instance, the same way `cgi_command.args` works. 
+- Add a `std::vector<std::string> env;` to `cgi_instance_struct`
+- then in the child of `cgi.cpp` convert and pass it:
+	```cpp
+	std::vector<char*> envp;
+	for (size_t i = 0; i < cgi_instance.env.size(); i++)
+		envp.push_back(const_cast<char*>(cgi_instance.env[i].c_str()));
+	envp.push_back(NULL);
+	execve(bin_path, const_cast<char* const*>(&argv_vector[0]), &envp[0]); 
+	```
+- Feed the POST body to the scrdipts stdin. When running POST on cgi it nees a second pipe: parent writes `request.body` into it, child `dup2` it's read end onto `STDIN_FILENO`.
+- `CONTENT_LENGHT` which `buildCgiEnv` sets, tell the script how may bytes to read.
+
+## Cgi Input: Query String vs Body/stdin
+A CGI script receives request data over **two separate channels**, and which one
+carries "the parameters" depends on the method. They must not be confused:
+
+- **Query string** (everything after `?` in the URL) → the `QUERY_STRING`
+  **environment variable**, never stdin. This is how a **GET** passes params.
+  `buildCgiEnv` already sets it from `request.query_string` (the parser splits
+  the raw target on `?` into `request.path` + `request.query_string`). A script
+  reads it from the environment (e.g. `os.environ["QUERY_STRING"]` in Python).
+- **Request body** → the script's **stdin**. This is how a **POST** passes data
+  (e.g. an HTML form's `application/x-www-form-urlencoded` fields, which look
+  like a query string but live in the body). The script reads exactly
+  `CONTENT_LENGTH` bytes from stdin.
+
+So a `?`-param is *always* env (`QUERY_STRING`); it does not travel through
+stdin. Only the POST body goes to stdin. A script that wants form params on
+stdin is reading the **body** of a POST, which is a different thing from the
+URL's `?` section even though both encode `key=value&key=value`.
+
+Status of each channel on our side:
+- `QUERY_STRING` (the `?` path): **done** — set by `buildCgiEnv`.
+- Body → stdin (POST): **pending** — needs the second pipe in `execute_cgi`
+  described above (Julio's dispatch/exec side); `CONTENT_LENGTH` is already set.
+
+
+# Cgi Response Parsing
+We have `HttpResponse paraseCgiResponse(cgi_output, server, request)` at `utils_config_file.cpp`, that does:
+-  splits headers/body (CRLF or LF)
+- maps `Status` / `Content-Type` / `Location` onto the dedicated fields
+- routes everything else ( like :Set-Cookie) into `extra_headers`
+- defaults to a bare `Location`to 302, and falls back to whole-body-as-is when a script emits no header block
+
+## Cgi Integration
+In our main response from CGI block:
+
+```cpp
+HttpResponse cgi_response = parseCgiResponse(
+    client_connection->cgi_instance.cgi_response,
+    *client_connection->ServerConfig_ptr,   // parseCgiResponse takes a reference
+    client_connection->request_data);
+client_connection->output_buffer.append(parseResponseToOutPut(cgi_response));
+
+```
+
+# Cgi Timeout
+We read per location the set: `cgi_timeout <seconds>` on the .conf file that gets parsed and saved under our `LocationConfig::cgi_timeout` in `size_t` `seconds`, we also have a macro in `ConfigTypes.hpp` for the default timeout value if none is provided `CGI_TIMEOUT_DEFAULT_SECONDS`.
+
+`cgi_timeout <seconds>` is parsed via `parseCgiTimeout` in `ConfigParser.cpp`, that is called from within `parseLocation`.
 
 # Improvements
 

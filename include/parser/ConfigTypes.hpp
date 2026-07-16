@@ -5,10 +5,13 @@
 #include <string>
 #include <vector>
 
+#define CGI_TIMEOUT_DEFAULT_SECONDS 10
+
 struct ListenAddr {
 	std::string host;
 	int port;
 };
+
 
 // path : route prefix this block if for : ex.: "/upload"
 // methods : vector with the methods provided on config for this path
@@ -20,6 +23,7 @@ struct ListenAddr {
 // redirect_code : 0 means no redirect is configured for this block
 // redirect_target : destination used when redirect_code != 0
 // cgi_extensions : map with the extensions and path for the cgi executors
+// cgi_timeout : max seconds a CGI process may run; defaults to CGI_TIMEOUT_DEFAULT_SECONDS
 struct LocationConfig {
 	std::string path;
 	std::vector<std::string> methods;
@@ -31,6 +35,7 @@ struct LocationConfig {
 	int redirect_code;
 	std::string redirect_target;
 	std::map<std::string, std::string> cgi_extensions;
+	size_t cgi_timeout;
 };
 
 // listens : we will consume all the connections that are going to be saved on this vector
