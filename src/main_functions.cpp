@@ -1,4 +1,5 @@
 #include "../include/client_connection.hpp"
+#include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
 #include "../include/socket_utils.hpp"
 #include "../include/utils/main_functions_utils.hpp"
@@ -51,4 +52,117 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
     client_map.insert(std::make_pair(fd_to_add, client_connection));
 
     fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
+}
+
+void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
+                               int epoll_instance,
+                               std::map<int, client_connection_struct>& client_map,
+                               std::map<int, int>& cgi_fd_map) {
+
+    memset(our_buffer, 0, BUFFER_SIZE);
+    int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
+
+    // "0" bytes read means a connection drop
+    if (bytes_read == 0) {
+
+        if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL) == -1) {
+            fail_and_exit_with_message(
+                -1, std::string("Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
+                        + std::strerror(errno));
+        }
+
+        std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
+
+        if (it == client_map.end()) {
+            fail_and_exit_with_message(1, std::string("Why this client fd doesn't have a instance?")
+                                              + std::strerror(errno));
+        }
+
+        client_map.erase(this_fd);
+
+        std::cout << "The client dropped the connection!\n\n";
+        return;
+    }
+
+    // Error case
+    if (bytes_read == -1) {
+        fail_and_exit_with_message(1, std::strerror(errno));
+    }
+
+    std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
+
+    if (it == client_map.end()) {
+        fail_and_exit_with_message(1, std::string("Why this client fd doesn't have a instance?")
+                                          + std::strerror(errno));
+    }
+
+    client_connection_struct& client_connection = it->second;
+
+    std::cout.write(our_buffer, bytes_read);
+    client_connection.input_buffer.append(our_buffer, bytes_read);
+
+    HttpRequestParser req_parser;
+
+    size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
+    if (length != std::string::npos) {
+        HttpRequest request;
+
+        request = req_parser.parse(client_connection.input_buffer.substr(0, length));
+        client_connection.input_buffer.erase(0, length);
+
+        // std::cout << "method: " << request.method << "\n";
+        // std::cout << "path: " << request.path << "\n";
+        // std::cout << "query_string: " << request.query_string << "\n";
+        // std::cout << "version: " << request.version << "\n";
+        // std::cout << "headers:\n";
+
+        // for (std::map<std::string, std::string>::const_iterator it =
+        //          request.headers.begin();
+        //      it != request.headers.end(); ++it) {
+        //     std::cout << "  " << it->first << ": " << it->second << "\n";
+        // }
+
+        // std::cout << "body (" << request.body.size() << " bytes): " << request.body
+        //           << "\n";
+
+        client_connection.request_data = request;
+
+        epoll_event event_settings;
+        event_settings.events = EPOLLOUT;
+        event_settings.data.fd = client_connection.client_fd;
+
+        epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
+    }
+
+    // mock code; remove it later
+    int execute_cgi_once = false;
+
+    // mock code below: cgi case
+    if (execute_cgi_once == true) {
+
+        // remove this later
+        client_connection.client_connection_type = CGI;
+
+        // mock content below:
+        client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
+        client_connection.cgi_instance.cgi_command.interpreted_language_path = "/usr/bin/python";
+        client_connection.cgi_instance.cgi_command.path_to_program =
+            "./cgi-bin/sample_python_script.py";
+        client_connection.cgi_instance.cgi_command.args.push_back("argument number 1");
+        client_connection.cgi_instance.cgi_command.args.push_back("argument number 2");
+        client_connection.cgi_instance.cgi_command.args.push_back("argument number 3");
+
+        int cgi_fd = 0;
+
+        try {
+            cgi_fd = execute_cgi(client_connection.cgi_instance);
+        } catch (std::exception& e) {
+            std::cerr << e.what() << std::endl;
+            fail_and_exit_with_message(-1, "We had an exception.");
+        }
+
+        cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
+
+        execute_cgi_once = false;
+    }
 }

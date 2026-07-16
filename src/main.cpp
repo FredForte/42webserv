@@ -136,11 +136,6 @@ int main(int argc, char** argv) {
     // std::map<client_fd, ServerConfig> fd_to_ServerConfig_ptr_map;
     std::map<int, ServerConfig*> fd_to_ServerConfig_ptr_map;
 
-    HttpRequestParser req_parser;
-
-    // mock code; remove it later:
-    int execute_cgi_once = true;
-
     while (true) {
         int n = epoll_wait(epoll_instance, event_poll, 64, -1);
 
@@ -150,125 +145,21 @@ int main(int argc, char** argv) {
 
             // new connections case
             if (is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd)) {
+
                 new_connections_func(epoll_instance, event_settings, this_fd,
                                      listen_fd_to_server_config_map, client_map,
                                      fd_to_ServerConfig_ptr_map);
                 continue;
             }
 
-            // standard connections case. Only client connections accepted
+            // standard connections case. Only client connections are accepted
             if (event_poll[i].events & EPOLLIN
                 && is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd) == false
                 && is_this_a_cgi_fd(cgi_fd_map, this_fd) == false) {
 
-                memset(our_buffer, 0, BUFFER_SIZE);
-                int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
-
-                // "0" bytes read means a connection drop
-                if (bytes_read == 0) {
-
-                    if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL) == -1) {
-                        fail_and_exit_with_message(
-                            -1,
-                            std::string(
-                                "Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
-                                + std::strerror(errno));
-                    }
-
-                    std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
-
-                    if (it == client_map.end()) {
-                        fail_and_exit_with_message(
-                            1, std::string("Why this client fd doesn't have a instance?")
-                                   + std::strerror(errno));
-                    }
-
-                    client_map.erase(this_fd);
-
-                    std::cout << "The client dropped the connection!\n\n";
-                    continue;
-                }
-
-                // Error case
-                if (bytes_read == -1) {
-                    fail_and_exit_with_message(1, std::strerror(errno));
-                }
-
-                std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
-
-                if (it == client_map.end()) {
-                    fail_and_exit_with_message(
-                        1, std::string("Why this client fd doesn't have a instance?")
-                               + std::strerror(errno));
-                }
-
-                client_connection_struct& client_connection = it->second;
-
-                std::cout.write(our_buffer, bytes_read);
-                client_connection.input_buffer.append(our_buffer, bytes_read);
-
-                size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
-                if (length != std::string::npos) {
-                    HttpRequest request;
-
-                    request = req_parser.parse(client_connection.input_buffer.substr(0, length));
-                    client_connection.input_buffer.erase(0, length);
-
-                    // std::cout << "method: " << request.method << "\n";
-                    // std::cout << "path: " << request.path << "\n";
-                    // std::cout << "query_string: " << request.query_string << "\n";
-                    // std::cout << "version: " << request.version << "\n";
-                    // std::cout << "headers:\n";
-
-                    // for (std::map<std::string, std::string>::const_iterator it =
-                    //          request.headers.begin();
-                    //      it != request.headers.end(); ++it) {
-                    //     std::cout << "  " << it->first << ": " << it->second << "\n";
-                    // }
-
-                    // std::cout << "body (" << request.body.size() << " bytes): " << request.body
-                    //           << "\n";
-
-                    client_connection.request_data = request;
-
-                    epoll_event event_settings;
-                    event_settings.events = EPOLLOUT;
-                    event_settings.data.fd = client_connection.client_fd;
-
-                    epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd,
-                              &event_settings);
-                }
-
-                // mock code below: cgi case
-                if (execute_cgi_once == true) {
-
-                    // remove this later
-                    client_connection.client_connection_type = CGI;
-
-                    // mock content below:
-                    client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
-                    client_connection.cgi_instance.cgi_command.interpreted_language_path =
-                        "/usr/bin/python";
-                    client_connection.cgi_instance.cgi_command.path_to_program =
-                        "./relevant_files/sample_python_script.py";
-                    client_connection.cgi_instance.cgi_command.args.push_back("argument number 1");
-                    client_connection.cgi_instance.cgi_command.args.push_back("argument number 2");
-                    client_connection.cgi_instance.cgi_command.args.push_back("argument number 3");
-
-                    int cgi_fd = 0;
-
-                    try {
-                        cgi_fd = execute_cgi(client_connection.cgi_instance);
-                    } catch (std::exception& e) {
-                        std::cerr << e.what() << std::endl;
-                        fail_and_exit_with_message(-1, "We had an exception.");
-                    }
-
-                    cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
-
-                    execute_cgi_once = false;
-                    continue;
-                }
+                standard_connections_func(this_fd, BUFFER_SIZE, our_buffer, epoll_instance,
+                                          client_map, cgi_fd_map);
+                continue;
             }
 
             // this is a cgi fd
@@ -342,22 +233,24 @@ int main(int argc, char** argv) {
                 client_connection_struct& client_connection = it->second;
 
                 if (client_connection.ready_to_respond == false) {
-                    LocationConfig* responseLocation =
-                        findRequestedLocation(server_config_vec[0], client_connection.request_data);
+                    LocationConfig* responseLocation = findRequestedLocation(
+                        *client_connection.ServerConfig_ptr, client_connection.request_data);
 
                     if (responseLocation) {
+
+                        // no redirection case
                         if (responseLocation->redirect_code != 0) {
 
-                            // A "return" location answers every method the same
-                            // way, so this is checked ahead of the methods list
-                            // instead of going through it.
-                            HttpResponse responseMessage =
-                                buildRedirectResponse(server_config_vec[0], *responseLocation,
-                                                      client_connection.request_data);
+                            // A "return" location answers every method the same way, so this is
+                            // checked ahead of the methods list instead of going through it.
+                            HttpResponse responseMessage = buildRedirectResponse(
+                                *client_connection.ServerConfig_ptr, *responseLocation,
+                                client_connection.request_data);
 
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
 
+                            // redirection case!
                         } else if (findStringOnVector(responseLocation->methods,
                                                       client_connection.request_data.method)) {
                             // std::cout << "Found requested method: "
@@ -374,6 +267,7 @@ int main(int argc, char** argv) {
                                 client_connection.output_buffer =
                                     parseResponseToOutPut(responseMessage);
                             }
+
                             // getResponseMessage dispatches on request_data.method
                             // internally (GET/POST/DELETE each have their own handler
                             // in response_handlers.cpp).
@@ -391,6 +285,8 @@ int main(int argc, char** argv) {
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
                         }
+
+                        // if response location is not found i.e. NULL
                     } else {
                         HttpResponse responseMessage =
                             getResponseMessage(404, client_connection.ServerConfig_ptr,
