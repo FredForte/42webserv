@@ -244,8 +244,6 @@ HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig r
 	HttpResponse response;
 	response.code = code;
 
-	HttpResponseCodesIndex codesIndex; // todo: make a class for the codes and description
-
 	response.description = codesIndex.getDescription(code);
 	response.server_name = server->server_name;
 	response.content_type = "Still need to figure this out"; // todo: figure this out

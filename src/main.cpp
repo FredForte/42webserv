@@ -26,32 +26,6 @@
 //             error pages if none are provided. todo: Fred: Clients must be able to upload files.
 // todo: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
 //             server to ensure it remains available at all times.
-bool is_this_a_cgi_fd(const std::map<int, int>& cgi_fd_map, int this_fd) {
-    return cgi_fd_map.find(this_fd) != cgi_fd_map.end();
-}
-
-// Can throw exception
-client_connection_struct*
-get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
-                                    std::map<int, client_connection_struct>& client_map,
-                                    int this_fd) {
-
-    std::map<int, int>::const_iterator cgi_fd_result_it = cgi_fd_map.find(this_fd);
-
-    if (cgi_fd_result_it == cgi_fd_map.end()) {
-        throw std::runtime_error("Should't this fd be a CGI one?!");
-    }
-
-    std::map<int, client_connection_struct>::iterator client_map_result_it =
-        client_map.find(cgi_fd_result_it->second);
-
-    if (client_map_result_it == client_map.end()) {
-        throw std::runtime_error("Why this CGI fd doesn't have a related client fd?!");
-    }
-
-    return &client_map_result_it->second;
-}
-
 // todo: Julio: think about having multiple listening fd's ready based on config file configuration
 // todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
 // can properly answer done: Fred: Fix content length to whole body HTTP response (/r/n/r/n) done:
@@ -377,8 +351,9 @@ int main(int argc, char** argv) {
                             // A "return" location answers every method the same
                             // way, so this is checked ahead of the methods list
                             // instead of going through it.
-                            HttpResponse responseMessage = buildRedirectResponse(
-                                server_config_vec[0], *responseLocation, client_connection.request_data);
+                            HttpResponse responseMessage =
+                                buildRedirectResponse(server_config_vec[0], *responseLocation,
+                                                      client_connection.request_data);
 
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
@@ -393,7 +368,8 @@ int main(int argc, char** argv) {
                             if (client_connection.request_data.method == "GET") {
                                 // create response for get method
                                 HttpResponse responseMessage = getResponseMessage(
-                                    200, client_connection.ServerConfig_ptr, *responseLocation);
+                                    200, client_connection.ServerConfig_ptr, *responseLocation,
+                                    client_connection.request_data);
 
                                 client_connection.output_buffer =
                                     parseResponseToOutPut(responseMessage);
@@ -401,21 +377,24 @@ int main(int argc, char** argv) {
                             // getResponseMessage dispatches on request_data.method
                             // internally (GET/POST/DELETE each have their own handler
                             // in response_handlers.cpp).
-                            HttpResponse responseMessage = (
-                                200, client_connection.ServerConfig_ptr, *responseLocation, client_connection.request_data);
+                            HttpResponse responseMessage = getResponseMessage(
+                                200, client_connection.ServerConfig_ptr, *responseLocation,
+                                client_connection.request_data);
 
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
 
                         } else {
                             HttpResponse responseMessage = getResponseMessage(
-                                405, client_connection.ServerConfig_ptr, *responseLocation, client_connection.request_data);
+                                405, client_connection.ServerConfig_ptr, *responseLocation,
+                                client_connection.request_data);
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
                         }
                     } else {
-                        HttpResponse responseMessage = getResponseMessage(
-                            404, client_connection.ServerConfig_ptr, LocationConfig(), client_connection.request_data);
+                        HttpResponse responseMessage =
+                            getResponseMessage(404, client_connection.ServerConfig_ptr,
+                                               LocationConfig(), client_connection.request_data);
 
                         client_connection.output_buffer = parseResponseToOutPut(responseMessage);
                     }
