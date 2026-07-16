@@ -21,6 +21,7 @@ struct HttpResponse {
 	int content_length;				// size of the buffer that is going to be sent
 	std::string connection;			// type of connecition, we should make an enum
 	std::string body;				// should come from the response buffer
+	std::string redirect_location;		// Location header value; empty means the header is omitted
 };
 
 #endif

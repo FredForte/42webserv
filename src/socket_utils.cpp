@@ -1,6 +1,7 @@
 #include "../include/socket_utils.hpp"
 #include "../include/program_flow_utils.hpp"
 #include <cstdlib>
+#include <cerrno>
 #include <cstring>
 #include <netdb.h> // so we can have addrinfo struct
 #include <string>

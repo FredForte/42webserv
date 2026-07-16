@@ -12,7 +12,8 @@ INCLUDES = -I.
 SRCS = main.cpp program_flow_utils.cpp  socket_utils.cpp cgi.cpp \
 	/utils/utils_config_file.cpp /parser/ConfigParser.cpp /parser/HttpRequestParser.cpp \
 	/parser/Tokenizer.cpp /response/HttpResponseCodesIndex.cpp main_functions.cpp \
-	/utils/main_functions_utils.cpp
+	/utils/main_functions_utils.cpp	/parser/Tokenizer.cpp \ 
+	/response/HttpResponseCodesIndex.cpp /response/response_handlers.cpp
 
 
 PARSER_TEST_NAME = parser_test
@@ -22,7 +23,7 @@ REQUEST_PARSER_TEST_NAME = request_parser_test
 REQUEST_PARSER_TEST_SRCS = parser/main_request_parser.cpp parser/HttpRequestParser.cpp
 
 CONFIG_REQUEST_TEST_NAME = config_request_test
-CONFIG_REQUEST_TEST_SRCS = parser/main_parser_request.cpp parser/HttpRequestParser.cpp parser/Tokenizer.cpp parser/ConfigParser.cpp response/HttpResponseCodesIndex.cpp
+CONFIG_REQUEST_TEST_SRCS = parser/main_parser_request.cpp parser/HttpRequestParser.cpp parser/Tokenizer.cpp parser/ConfigParser.cpp response/HttpResponseCodesIndex.cpp response/response_handlers.cpp utils/utils_config_file.cpp program_flow_utils.cpp
 
 SRCS_PATH = src
 OBJS_PATH = objs

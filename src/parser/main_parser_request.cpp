@@ -1,19 +1,12 @@
-#include "../../include/parser/../../include/parser/ConfigParser.hpp"
-
+#include "../../include/parser/ConfigParser.hpp"
 #include <ctime>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include "../../include/parser/HttpRequestParser.hpp"
-#include "../response/HttpResponse.hpp"
-#include "../response/HttpResponseCodesIndex.hpp"
-
-static std::string readFile(const std::string& path) {
-	std::ifstream file(path.c_str());
-	std::stringstream buffer;
-	buffer << file.rdbuf();
-	return buffer.str();
-}
+#include "../../include/response/HttpResponse.hpp"
+#include "../../include/response/HttpResponseCodesIndex.hpp"
+#include "../../include/utils/utils_config_file.hpp"
 
 static void headerMessagePrint(const std::string text) {
 	int middle_line_half = (78 - text.size()) / 2;
@@ -29,92 +22,6 @@ static void headerMessagePrint(const std::string text) {
 	for (int i = 0; i < 80; i++)
 		std::cout << "#";
 	std::cout << "\n";
-}
-
-// todo: reuse this function to know the location requested
-LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &request) {
-	std::cout << "Looking for requested location: " << request.path << std::endl;
-
-	for (size_t i = 0; i < server_conf.locations.size(); i++) {
-		if (server_conf.locations[i].path == request.path) {
-			return &server_conf.locations[i];
-		}
-	}
-	return NULL;
-}
-
-bool findStringOnVector(std::vector<std::string> vector, std::string toFind) {
-	for (size_t i = 0; i < vector.size(); i++) {
-		if (vector[i] == toFind)
-			return true;
-	}
-	return false;
-}
-
-HttpResponse getResponseMessage(int code, ServerConfig &server, LocationConfig responseLocation) {
-	HttpResponse response;
-	response.code = code;
-
-	HttpResponseCodesIndex codesIndex; // todo: make a class for the codes and description
-
-	std::map<int, std::string>::iterator descriptionIndex = codesIndex.responseCodesDescriptions.find(code);
-	if (descriptionIndex != codesIndex.responseCodesDescriptions.end()) {
-		response.description = descriptionIndex->second;
-	} else
-		response.description = "Error getting description";
-	response.server_name = server.server_name;
-	response.content_type = "Still need to figure this out"; // todo: figure this out
-
-	std::string responseBody = readFile(responseLocation.root.append(responseLocation.index));
-	response.content_length = responseBody.size();
-	response.connection = "close"; // todo: get this info
-	response.body = responseBody;
-
-	return response;
-}
-
-void parseResponseToOutPut(HttpResponse response) {
-	std::string output;
-	output.append("HTTP/1.1 ");
-
-	std::stringstream ss;
-	ss << response.code;
-	output.append(ss.str());
-
-	output.append(" ");
-	output.append(response.description);
-
-	output.append("\r\n");
-
-	output.append("Server: ");
-	output.append(response.server_name);
-
-	output.append("\r\n");
-
-	output.append("Date: ");
-	output.append(getHttpDateHeader());
-
-	output.append("\r\n");
-
-	output.append("Content-Type: text/html; charset=UTF-8");
-
-	output.append("\r\n");
-
-	std::stringstream ss2;
-	ss2 << response.content_length;
-	output.append("Content-Length: ");
-	output.append(ss2.str());
-
-	output.append("\r\n");
-
-	output.append("Connection: close");
-
-	output.append("\r\n"
-				  "\r\n");
-
-	output.append(response.body);
-
-	std::cout << output << std::endl;
 }
 
 int main(int argc, char** argv) {
@@ -176,9 +83,9 @@ int main(int argc, char** argv) {
 			std::cout << "Found requested method: " << request.method << " on found location" << std::endl;
 			if (request.method == "GET") {
 				// create response for get method
-				HttpResponse responseMessage = getResponseMessage(200, config[0], *responseLocation);
+				HttpResponse responseMessage = getResponseMessage(200, config[0], *responseLocation, request);
 				headerMessagePrint("Response Message");
-				parseResponseToOutPut(responseMessage);
+				std::cout << parseResponseToOutPut(responseMessage) << std::endl;
 			}
 		} else
 			std::cout << "Method requested not allowed on location" << std::endl;

@@ -66,9 +66,9 @@ void HttpRequestParser::parseChunkedBody(const std::string& raw, size_t pos, Htt
 	}
 }
 
-// Content-Length is read straight off; chunked bodies get reassembled into
-// one contiguous string here so nothing downstream (e.g. CGI) ever has to
-// deal with chunk framing.
+// Content-Length is read straight off; 
+//chunked bodies get reassembled into one contiguous string here so nothing downstream ever 
+// has to deal with chunk framing.
 void HttpRequestParser::parseBody(const std::string& raw, size_t body_start, HttpRequest& request) {
 	std::map<std::string, std::string>::const_iterator encoding =
 	    request.headers.find("transfer-encoding");
@@ -85,8 +85,8 @@ void HttpRequestParser::parseBody(const std::string& raw, size_t body_start, Htt
 }
 
 // Reads header lines from `pos` until the blank line, updating `pos` (by
-// reference) to point just past it - i.e. to where the body starts. Safe to
-// call whenever the header block is known to be fully present: either
+// reference) to point just past it, where the body starts. 
+// Safe to call whenever the header block is known to be fully present: either
 // because `parse()`'s caller already guaranteed the whole request is
 // buffered, or because completeRequestLength() only calls this after
 // confirming the blank line was found.

@@ -13,6 +13,11 @@
 #include <cstring>
 #include <iostream>
 #include <map>
+#include "../include/cgi.hpp" // to have "accept()"
+#include "../include/parser/ConfigParser.hpp"
+#include "../include/response/response_handlers.hpp"
+#include "../include/socket_utils.hpp"
+#include "../include/utils/utils_config_file.hpp"
 #include <sstream>
 #include <stdexcept>
 #include <sys/epoll.h>
@@ -25,6 +30,42 @@
 //             error pages if none are provided. todo: Fred: Clients must be able to upload files.
 // todo: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
 //             server to ensure it remains available at all times.
+bool is_this_a_cgi_fd(const std::map<int, int>& cgi_fd_map, int this_fd) {
+    return cgi_fd_map.find(this_fd) != cgi_fd_map.end();
+}
+
+// Can throw exception
+client_connection_struct*
+get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
+                                    std::map<int, client_connection_struct>& client_map,
+                                    int this_fd) {
+
+    std::map<int, int>::const_iterator cgi_fd_result_it = cgi_fd_map.find(this_fd);
+
+    if (cgi_fd_result_it == cgi_fd_map.end()) {
+        throw std::runtime_error("Should't this fd be a CGI one?!");
+    }
+
+    std::map<int, client_connection_struct>::iterator client_map_result_it =
+        client_map.find(cgi_fd_result_it->second);
+
+    if (client_map_result_it == client_map.end()) {
+        throw std::runtime_error("Why this CGI fd doesn't have a related client fd?!");
+    }
+
+    return &client_map_result_it->second;
+}
+
+// todo: Julio: think about having multiple listening fd's ready based on config file configuration
+// todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it can properly answer
+// done: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
+// done: Fred: Fill in all HTTP response status codes.
+// done: Fred: our server must have default error pages if none are provided.
+// done: Fred: Clients must be able to upload files.
+// done: Fred: You need at least the GET, POST, and DELETE methods.
+// todo: Both: Stress test your server to ensure it remains available at all times.
+// todo: Both: Your server must be able to listen to multiple ports to deliver different content (see
+//              Configuration file).
 // todo: Fred: Set the maximum allowed size for client request bodies.
 // todo: Fred: HTTP redirection.
 // todo: Fred: Enabling or disabling directory listing.
@@ -36,6 +77,15 @@
 // todo: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
 //             CRLF end line. todo: Fred: Set limit to how much we can read.
 // ---
+// done: Fred: HTTP redirection.
+// done: Fred: Enabling or disabling directory listing.
+// done: Fred: Default file to serve when the requested resource is a directory.
+// done: Fred: Uploading files from the clients to the server is authorized, and storage location
+//              is provided.
+// done: Fred: Test chunk sizes are in hexadecimal.
+// done: Fred: Test chunk limit read between calls.
+// done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a CRLF end line.
+// todo: Fred: Set limit to how much we can read.
 // todo: Julio: Have a careful look at the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
@@ -327,11 +377,16 @@ int main(int argc, char** argv) {
                         findRequestedLocation(server_config_vec[0], client_connection.request_data);
 
                     if (responseLocation) {
-                        // std::cout << "found the request location" << std::endl;
-                        // std::cout << "Request method check on location" << std::endl;
-                        // check request method and location method
-
-                        if (findStringOnVector(responseLocation->methods,
+                        if (responseLocation->redirect_code != 0) {
+                            // A "return" location answers every method the same
+                            // way, so this is checked ahead of the methods list
+                            // instead of going through it.
+                            HttpResponse responseMessage =
+                                buildRedirectResponse(config[0], *responseLocation,
+                                                       client_connection.request_data);
+                            client_connection.output_buffer =
+                                parseResponseToOutPut(responseMessage);
+                        } else if (findStringOnVector(responseLocation->methods,
                                                client_connection.request_data.method)) {
                             // std::cout << "Found requested method: "
                             //           << client_connection.request_data.method << " on found
@@ -346,13 +401,24 @@ int main(int argc, char** argv) {
                                 client_connection.output_buffer =
                                     parseResponseToOutPut(responseMessage);
                             }
+                            // getResponseMessage dispatches on request_data.method
+                            // internally (GET/POST/DELETE each have their own handler
+                            // in response_handlers.cpp).
+                            HttpResponse responseMessage =
+                                getResponseMessage(200, config[0], *responseLocation, client_connection.request_data);
+                            client_connection.output_buffer =
+                                parseResponseToOutPut(responseMessage);
                         } else {
-                            // return error page 500 or something
-                            std::cerr << "Method requested not allowed on location" << std::endl;
+                            HttpResponse responseMessage =
+                                getResponseMessage(405, config[0], *responseLocation, client_connection.request_data);
+                            client_connection.output_buffer =
+                                parseResponseToOutPut(responseMessage);
                         }
                     } else {
-                        // return error page 500 or something
-                        std::cerr << "request location not found" << std::endl;
+                        HttpResponse responseMessage =
+                            getResponseMessage(404, config[0], LocationConfig(), client_connection.request_data);
+                        client_connection.output_buffer =
+                            parseResponseToOutPut(responseMessage);
                     }
 
                     client_connection.ready_to_respond = true;

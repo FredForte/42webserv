@@ -2,12 +2,17 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cctype>
+#include <cerrno>
 #include <map>
 #include "../../include/parser/ConfigTypes.hpp"
 #include "../../include/parser/HttpRequest.hpp"
 #include "../../include/response/HttpResponse.hpp"
 #include "../../include/response/HttpResponseCodesIndex.hpp"
+#include "../../include/response/response_handlers.hpp"
 #include <ctime>
+#include <sys/stat.h>
+#include <dirent.h>
 
 void printLocation(const LocationConfig& location) {
 	std::cout << "  location " << location.path << " {\n";
@@ -75,14 +80,20 @@ bool findStringOnVector(std::vector<std::string> vector, std::string toFind) {
 }
 
 LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &request) {
-	std::cout << "Looking for requested location: " << request.path << std::endl;
+	// std::cout << "Looking for requested location: " << request.path << std::endl;
+	LocationConfig* best_match = NULL;
+	size_t max_len = 0;
 
 	for (size_t i = 0; i < server_conf.locations.size(); i++) {
-		if (server_conf.locations[i].path == request.path) {
-			return &server_conf.locations[i];
+		const std::string& loc_path = server_conf.locations[i].path;
+		if (request.path.compare(0, loc_path.length(), loc_path) == 0) {
+			if (loc_path.length() > max_len) {
+				max_len = loc_path.length();
+				best_match = &server_conf.locations[i];
+			}
 		}
 	}
-	return NULL;
+	return best_match;
 }
 
 HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig responseLocation) {
@@ -91,13 +102,7 @@ HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig r
 
 	HttpResponseCodesIndex codesIndex; // todo: make a class for the codes and description
 
-	std::map<int, std::string>::iterator descriptionIndex = codesIndex.responseCodesDescriptions.find(code);
-
-	if (descriptionIndex != codesIndex.responseCodesDescriptions.end()) {
-		response.description = descriptionIndex->second;
-	} else
-		response.description = "Error getting description";
-
+	response.description = codesIndex.getDescription(code);
 	response.server_name = server->server_name;
 	response.content_type = "Still need to figure this out"; // todo: figure this out
 
@@ -110,6 +115,9 @@ HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig r
 	return response;
 }
 
+// Boiler-plate type of date and time cpp getter
+// Already returning the full header line for Date:
+// Returns empty if formatting fails
 static std::string getHttpDateHeader() {
     // 1. Get current time
     std::time_t now = std::time(NULL);
@@ -132,6 +140,10 @@ static std::string getHttpDateHeader() {
     return ""; // Fallback if formatting fails
 }
 
+// Very procedural and illustrative way of creating our response
+// header and body, I've left it spaced out as much as possible
+// to make it clear where each header line goes and how its
+// being set here
 std::string parseResponseToOutPut(HttpResponse response) {
 	std::string output;
 	output.append("HTTP/1.1 ");
@@ -150,12 +162,12 @@ std::string parseResponseToOutPut(HttpResponse response) {
 
 	output.append("\r\n");
 
-	output.append("Date: ");
 	output.append(getHttpDateHeader());
 
 	output.append("\r\n");
 
-	output.append("Content-Type: text/html; charset=UTF-8");
+	output.append("Content-Type: ");
+	output.append(response.content_type);
 
 	output.append("\r\n");
 
@@ -166,7 +178,14 @@ std::string parseResponseToOutPut(HttpResponse response) {
 
 	output.append("\r\n");
 
-	output.append("Connection: close");
+	if (!response.redirect_location.empty()) {
+		output.append("Location: ");
+		output.append(response.redirect_location);
+		output.append("\r\n");
+	}
+
+	output.append("Connection: ");
+	output.append(response.connection);
 
 	output.append("\r\n"
 				  "\r\n");
