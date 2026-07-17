@@ -21,6 +21,7 @@
 #include <sys/types.h> // to have "accept()"
 #include <unistd.h>
 
+// todo: Fred: If cgi doesn't have a space, it all gets fucked
 // todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
 // todo: Fred: Fill in all HTTP response status codes. todo: Fred: our server must have default
 //             error pages if none are provided. todo: Fred: Clients must be able to upload files.
@@ -58,6 +59,7 @@
 // the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
+// todo: Julio: Internal server error. Deal with it
 // todo: Julio: (hardcore) If CGI and Post, send data to CGI's stdin
 // todo: Julio: CGI returns structured content
 // todo: Julio: Test: The CGI should be run in the correct directory for relative path file access.
@@ -211,6 +213,8 @@ int main(int argc, char** argv) {
 
                     epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection->client_fd,
                               &event_settings);
+
+                    client_connection->ready_to_respond = true;
                 }
 
                 client_connection->cgi_instance.cgi_response.append(our_buffer, bytes_read);

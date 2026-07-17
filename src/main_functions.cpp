@@ -116,13 +116,15 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     client_connection.input_buffer.erase(0, length);
 
     LocationConfig* responseLocation =
-        findRequestedLocation(*client_connection.ServerConfig_ptr, client_connection.request_data);
+        findRequestedLocation(*client_connection.ServerConfig_ptr, request);
 
     // todo: Fred: if CGI
     if (!responseLocation->cgi_extensions.empty()) {
 
+        std::string this_concat = std::string(".") + getFileExtension(request.path);
+
         std::map<std::string, std::string>::iterator it =
-            responseLocation->cgi_extensions.find(getFileExtension(responseLocation->path));
+            responseLocation->cgi_extensions.find(this_concat);
 
         // if it doesn't find the bin
         if (it == responseLocation->cgi_extensions.end()) {
@@ -136,7 +138,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
         std::string this_bin_path_from_argv_cpp_str = std::string(this_bin_path_from_argv);
         std::string::size_type pos = this_bin_path_from_argv_cpp_str.rfind('/');
-        if (pos != std::string::npos) {
+        if (pos == std::string::npos) {
             fail_and_exit_with_message(-1, "Why we weren't capable of finding the cgi-bin folder?");
         }
 
@@ -145,9 +147,8 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         // fills cgi_command block:
         client_connection.cgi_instance.cgi_command.interpreted_language_path = it->second.c_str();
 
-        client_connection.cgi_instance.cgi_command.path_to_program =
-            (this_bin_path_from_argv_cpp_str + joinPath(responseLocation->root, request.path))
-                .c_str();
+        std::string a_cpp_string = joinPath(this_bin_path_from_argv_cpp_str, request.path);
+        client_connection.cgi_instance.cgi_command.path_to_program = a_cpp_string.c_str();
 
         client_connection.cgi_instance.cgi_command.args.push_back(
             client_connection.cgi_instance.cgi_command.path_to_program);
@@ -172,11 +173,11 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     client_connection.request_data = request;
 
-    epoll_event event_settings;
-    event_settings.events = EPOLLOUT;
-    event_settings.data.fd = client_connection.client_fd;
+    // epoll_event event_settings;
+    // event_settings.events = EPOLLOUT;
+    // event_settings.data.fd = client_connection.client_fd;
 
-    epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
+    // epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
 
     // // mock code; remove it later
     // int execute_cgi_once = false;
