@@ -3,11 +3,13 @@
 #include "../include/program_flow_utils.hpp"
 #include "../include/socket_utils.hpp"
 #include "../include/utils/main_functions_utils.hpp"
+#include "../include/response/response_handlers.hpp"
 #include <cerrno>
 #include <cstring>
 #include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include "../include/utils/utils_config_file.hpp"
 
 void new_connections_func(int epoll_instance, epoll_event& event_settings, int this_fd,
                           std::map<int, ServerConfig*>& listen_fd_to_server_config_map,
@@ -57,7 +59,7 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
                                int epoll_instance,
                                std::map<int, client_connection_struct>& client_map,
-                               std::map<int, int>& cgi_fd_map) {
+                               std::map<int, int>& cgi_fd_map, char* this_bin_path_from_argv) {
 
     memset(our_buffer, 0, BUFFER_SIZE);
     int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
@@ -104,53 +106,56 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     HttpRequestParser req_parser;
 
     size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
-    if (length != std::string::npos) {
-        HttpRequest request;
-
-        request = req_parser.parse(client_connection.input_buffer.substr(0, length));
-        client_connection.input_buffer.erase(0, length);
-
-        // std::cout << "method: " << request.method << "\n";
-        // std::cout << "path: " << request.path << "\n";
-        // std::cout << "query_string: " << request.query_string << "\n";
-        // std::cout << "version: " << request.version << "\n";
-        // std::cout << "headers:\n";
-
-        // for (std::map<std::string, std::string>::const_iterator it =
-        //          request.headers.begin();
-        //      it != request.headers.end(); ++it) {
-        //     std::cout << "  " << it->first << ": " << it->second << "\n";
-        // }
-
-        // std::cout << "body (" << request.body.size() << " bytes): " << request.body
-        //           << "\n";
-
-        client_connection.request_data = request;
-
-        epoll_event event_settings;
-        event_settings.events = EPOLLOUT;
-        event_settings.data.fd = client_connection.client_fd;
-
-        epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
+    if (length == std::string::npos) {
+        return;
     }
 
-    // mock code; remove it later
-    int execute_cgi_once = false;
+    HttpRequest request;
 
-    // mock code below: cgi case
-    if (execute_cgi_once == true) {
+    request = req_parser.parse(client_connection.input_buffer.substr(0, length));
+    client_connection.input_buffer.erase(0, length);
 
-        // remove this later
-        client_connection.client_connection_type = CGI;
+    LocationConfig* responseLocation =
+        findRequestedLocation(*client_connection.ServerConfig_ptr, client_connection.request_data);
 
-        // mock content below:
+    // todo: Fred: if CGI
+    if (!responseLocation->cgi_extensions.empty()) {
+
+        std::map<std::string, std::string>::iterator it =
+            responseLocation->cgi_extensions.find(getFileExtension(responseLocation->path));
+
+        // if it doesn't find the bin
+        if (it == responseLocation->cgi_extensions.end()) {
+            return;
+        }
+
         client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
-        client_connection.cgi_instance.cgi_command.interpreted_language_path = "/usr/bin/python";
+        if (it->second.empty()) {
+            client_connection.cgi_instance.cgi_command.cgi_type = BINARY;
+        }
+
+        std::string this_bin_path_from_argv_cpp_str = std::string(this_bin_path_from_argv);
+        std::string::size_type pos = this_bin_path_from_argv_cpp_str.rfind('/');
+        if (pos != std::string::npos) {
+            fail_and_exit_with_message(-1, "Why we weren't capable of finding the cgi-bin folder?");
+        }
+
+        this_bin_path_from_argv_cpp_str.erase(pos + 1);
+
+        // fills cgi_command block:
+        client_connection.cgi_instance.cgi_command.interpreted_language_path = it->second.c_str();
+
         client_connection.cgi_instance.cgi_command.path_to_program =
-            "./cgi-bin/sample_python_script.py";
-        client_connection.cgi_instance.cgi_command.args.push_back("argument number 1");
-        client_connection.cgi_instance.cgi_command.args.push_back("argument number 2");
-        client_connection.cgi_instance.cgi_command.args.push_back("argument number 3");
+            (this_bin_path_from_argv_cpp_str + joinPath(responseLocation->root, request.path))
+                .c_str();
+
+        client_connection.cgi_instance.cgi_command.args.push_back(
+            client_connection.cgi_instance.cgi_command.path_to_program);
+
+        client_connection.cgi_instance.cgi_command.envp =
+            buildCgiEnv(request, *client_connection.ServerConfig_ptr);
+
+        client_connection.cgi_instance.epoll_instance = epoll_instance;
 
         int cgi_fd = 0;
 
@@ -161,8 +166,47 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
             fail_and_exit_with_message(-1, "We had an exception.");
         }
 
+        client_connection.cgi_instance.cgi_fd = cgi_fd;
         cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
-
-        execute_cgi_once = false;
     }
+
+    client_connection.request_data = request;
+
+    epoll_event event_settings;
+    event_settings.events = EPOLLOUT;
+    event_settings.data.fd = client_connection.client_fd;
+
+    epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
+
+    // // mock code; remove it later
+    // int execute_cgi_once = false;
+
+    // // mock code below: cgi case
+    // if (execute_cgi_once == true) {
+
+    //     // remove this later
+    //     client_connection.client_connection_type = CGI;
+
+    //     // mock content below:
+    //     client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
+    //     client_connection.cgi_instance.cgi_command.interpreted_language_path = "/usr/bin/python";
+    //     client_connection.cgi_instance.cgi_command.path_to_program =
+    //         "./cgi-bin/sample_python_script.py";
+    //     client_connection.cgi_instance.cgi_command.args.push_back("argument number 1");
+    //     client_connection.cgi_instance.cgi_command.args.push_back("argument number 2");
+    //     client_connection.cgi_instance.cgi_command.args.push_back("argument number 3");
+
+    //     int cgi_fd = 0;
+
+    //     try {
+    //         cgi_fd = execute_cgi(client_connection.cgi_instance);
+    //     } catch (std::exception& e) {
+    //         std::cerr << e.what() << std::endl;
+    //         fail_and_exit_with_message(-1, "We had an exception.");
+    //     }
+
+    //     cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
+
+    //     execute_cgi_once = false;
+    // }
 }

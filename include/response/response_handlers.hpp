@@ -14,5 +14,6 @@ HttpResponse handleDeleteRequest(ServerConfig& server, LocationConfig& location,
 // A location with redirect_code != 0 answers every method the same way, so this
 // is checked ahead of (not dispatched alongside) the per-method handlers above.
 HttpResponse buildRedirectResponse(ServerConfig& server, LocationConfig& location, const HttpRequest& request);
+std::string joinPath(const std::string& a, const std::string& b);
 
 #endif

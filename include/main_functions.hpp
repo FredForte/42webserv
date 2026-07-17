@@ -14,6 +14,6 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
                                int epoll_instance,
                                std::map<int, client_connection_struct>& client_map,
-                               std::map<int, int>& cgi_fd_map);
+                               std::map<int, int>& cgi_fd_map, char* this_bin_path_from_arg);
 
 #endif

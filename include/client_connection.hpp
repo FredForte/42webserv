@@ -4,8 +4,8 @@
 #include "./cgi.hpp"
 #include "./parser/ConfigTypes.hpp"
 #include "./parser/HttpRequest.hpp"
-#include <string>
 #include <map>
+#include <string>
 
 enum client_connection_enum {
     STANDARD,

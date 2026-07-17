@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
                 && is_this_a_cgi_fd(cgi_fd_map, this_fd) == false) {
 
                 standard_connections_func(this_fd, BUFFER_SIZE, our_buffer, epoll_instance,
-                                          client_map, cgi_fd_map);
+                                          client_map, cgi_fd_map, argv[0]);
                 continue;
             }
 
@@ -201,8 +201,7 @@ int main(int argc, char** argv) {
                     // same way every other response goes out.
                     HttpResponse cgi_response = parseCgiResponse(
                         client_connection->cgi_instance.cgi_response,
-                        *client_connection->ServerConfig_ptr,
-                        client_connection->request_data);
+                        *client_connection->ServerConfig_ptr, client_connection->request_data);
 
                     client_connection->output_buffer.append(parseResponseToOutPut(cgi_response));
 
@@ -235,7 +234,7 @@ int main(int argc, char** argv) {
 
                     if (responseLocation) {
 
-                        // no redirection case
+                        // redirection case
                         if (responseLocation->redirect_code != 0) {
 
                             // A "return" location answers every method the same way, so this is
@@ -247,23 +246,18 @@ int main(int argc, char** argv) {
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
 
-                            // redirection case!
+                            // method allowed check
                         } else if (findStringOnVector(responseLocation->methods,
                                                       client_connection.request_data.method)) {
-                            // std::cout << "Found requested method: "
-                            //           << client_connection.request_data.method << " on found
-                            //           location"
-                            //           << std::endl;
+                            // if (client_connection.request_data.method == "GET") {
+                            //     // create response for get method
+                            //     HttpResponse responseMessage = getResponseMessage(
+                            //         200, client_connection.ServerConfig_ptr, *responseLocation,
+                            //         client_connection.request_data);
 
-                            if (client_connection.request_data.method == "GET") {
-                                // create response for get method
-                                HttpResponse responseMessage = getResponseMessage(
-                                    200, client_connection.ServerConfig_ptr, *responseLocation,
-                                    client_connection.request_data);
-
-                                client_connection.output_buffer =
-                                    parseResponseToOutPut(responseMessage);
-                            }
+                            //     client_connection.output_buffer =
+                            //         parseResponseToOutPut(responseMessage);
+                            // }
 
                             // getResponseMessage dispatches on request_data.method
                             // internally (GET/POST/DELETE each have their own handler
@@ -306,7 +300,7 @@ int main(int argc, char** argv) {
 
                     client_connection.output_buffer.erase(0, bytes_send);
                 }
-
+                // todo: Decide to close or keep alive based on connection.type
                 if (client_connection.output_buffer.empty()) {
                     epoll_event event_settings;
                     event_settings.events = EPOLLIN;

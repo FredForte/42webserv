@@ -9,6 +9,8 @@
 #include <sys/wait.h>  // waitpid() includes
 #include <unistd.h>
 #include <vector>
+#include "../include/parser/ConfigTypes.hpp"
+#include "../include/parser/HttpRequest.hpp"
 
 // Can throw exception
 int execute_cgi(cgi_instance_struct& cgi_instance) {
@@ -57,12 +59,16 @@ int execute_cgi(cgi_instance_struct& cgi_instance) {
 
     if (process_id == 0) {
 
+        // todo: check for body presence
         close(file_descriptors[0]);
 
         dup2(file_descriptors[1], STDOUT_FILENO);
-
+        // todo:
         std::vector<const char*> argv_vector;
+        std::vector<std::string> buildCgiEnv(const HttpRequest& request,
+                                             const ServerConfig& server);
 
+        // todo: Julio: Refactor this code to use envp instead
         std::vector<std::string>::iterator it;
 
         if (cgi_command.cgi_type == INTERPRETED_LANGUAGE) {

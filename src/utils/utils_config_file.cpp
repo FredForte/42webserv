@@ -101,7 +101,7 @@ LocationConfig* findRequestedLocation(ServerConfig &server_conf, HttpRequest &re
 // Returns the substring after the last '.' in the file's basename (not the
 // whole path, so a dot in a directory name like "my.folder/file" is ignored)
 // lowercased so ".JPG" and ".jpg" resolve to the same MIME type.
-static std::string getFileExtension(const std::string& path) {
+std::string getFileExtension(const std::string& path) {
 	size_t last_slash = path.find_last_of('/');
 	std::string basename = (last_slash == std::string::npos) ? path : path.substr(last_slash + 1);
 
@@ -282,9 +282,9 @@ static std::string getHttpDateHeader() {
 // ready to become execve's envp.
 // The caller should turn them into NULL-terminatd char* array.
 // Request headers are passed through as HTTP_<NAME>, uppercased and '-' to '_',
-// except Content-Type and Content-Length, which turn into CONTENT_TYPE and 
+// except Content-Type and Content-Length, which turn into CONTENT_TYPE and
 // CONTENT-LENGTH without the HTTP_ prefix.
-// SCRIPT_FILENAME and PATH_TRANSLATED ( the script's on- disk path) and 
+// SCRIPT_FILENAME and PATH_TRANSLATED ( the script's on- disk path) and
 // SCRIPT_NAME / PATH_INFO, both sets need the resoled script location
 // which comes from CGI dispatch.
 std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server) {

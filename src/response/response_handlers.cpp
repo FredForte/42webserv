@@ -9,7 +9,7 @@
 
 // Joins two path segments with exactly one '/' between them, regardless of
 // whether either side already has one.
-static std::string joinPath(const std::string& a, const std::string& b) {
+std::string joinPath(const std::string& a, const std::string& b) {
 	if (a.empty())
 		return b;
 	if (b.empty())
@@ -96,7 +96,7 @@ static std::string generateAutoIndexHtml(const std::string& directory_path, cons
 HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
-
+    // todo: Fred: check for cgi responses validity and treat accordingly.
 	response.server_name = server.server_name;
 	response.connection = determineConnection(request);
 	response.content_type = "text/html; charset=UTF-8";
@@ -155,7 +155,7 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location, co
 // If upload_enabled is false 403 Forbidden
 // If no filename provided 400 Bad Request
 // If we fail to stream the content to our ofstream 500 Internal Server Error
-// 
+//
 HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location, const HttpRequest& request) {
 	HttpResponse response;
 	HttpResponseCodesIndex codesIndex;
