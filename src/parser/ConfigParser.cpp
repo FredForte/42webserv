@@ -158,10 +158,12 @@ void ConfigParser::parseReturn(LocationConfig& location) {
 }
 
 void ConfigParser::parseCgi(LocationConfig& location) {
-	std::string extension = expectWord();
-	std::string interpreter = expectWord();
-	expect(TOKEN_SEMICOLON);
-	location.cgi_extensions[extension] = interpreter;
+    std::string extension = expectWord();
+    std::string interpreter;
+    if (_tokenizer.peek().type != TOKEN_SEMICOLON)
+        interpreter = expectWord();
+    expect(TOKEN_SEMICOLON);
+    location.cgi_extensions[extension] = interpreter;
 }
 
 void ConfigParser::parseCgiTimeout(LocationConfig& location) {

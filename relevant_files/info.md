@@ -46,6 +46,11 @@ It works like this:
 - For each pick: prints the raw request, sends it over a real TCP socket via `nc -q 1` with a 2s reply cap since `webserv` is not closing the connection after responding yet, then prints the raw response.
 - Kills the server on exit/quit/Ctrl+C via a trap, so nothing lingers
 
+## End to End Tester
+We have a script `e2e.sh` that runs a batch of requests and checks the response based on the `example.conf` file and the expected behaviours of our `webserv`, this server as a good `regression` test that we can run periodically to see if nothing broke after changes. 
+
+The script runs default silent, run with `e2e.sh -v` runs as verbose to output the requests and responses as well.
+
 # Redirection
 A redirect isnt a page, its a status code (301, 302, 307, 308, etc) plus a `Location:` header teling the client "the thinkg you asked for is actually over there". The client (browser, curl with `-L`) reads that header and automatically re-requests the new URL. No file gets read, no body matters much.
 
@@ -141,6 +146,54 @@ client_connection->output_buffer.append(parseResponseToOutPut(cgi_response));
 We read per location the set: `cgi_timeout <seconds>` on the .conf file that gets parsed and saved under our `LocationConfig::cgi_timeout` in `size_t` `seconds`, we also have a macro in `ConfigTypes.hpp` for the default timeout value if none is provided `CGI_TIMEOUT_DEFAULT_SECONDS`.
 
 `cgi_timeout <seconds>` is parsed via `parseCgiTimeout` in `ConfigParser.cpp`, that is called from within `parseLocation`.
+
+# Errors Handling
+We handle errors differently for each step of the execution and webserver states.
+
+# Server Boot Errors
+`failt_and_exit_with_message` handles the errors on webserv boot sequence when running:
+- `return_a_fully_prepared_socket`
+- `listen`
+- `epoll_create1`
+- the initial `epool_ctl ADD`
+
+All of this happen once at boot, before any client exits
+
+## Internal Server Error 5xx
+We are using throw and catch in order to detect and respond to errors and failures that might occur during the exectuion of certain functions in the server.
+calling `void queue_error_response(int epoll_instance, client_connection_struct& client, int status_code)` that prepares a response object with the provided status code and flags it for `EPOLLOUT`.
+
+## CGI error
+`execute_cgi` parent side uses `throw std::runtime_error` with fd cleanup before each throw:
+- `pipe()` fail goes to throw
+- `for()` fail closes both pipe ends, then throw
+- parent `epoll_ctl` fail close read end, then throw
+- child `execve` fail, `_exit(1)` not `std::exit` and never thow because:
+	- `std::exit` would flush stdio buffers that are inherited from parent, double-writing buffered output by leaving it available for parent to read or append it, `_exit()` goes straigh to kernel, so no flush, no destructors. The child's copy is sdiscarded, leaving only the parent created buffer bytes.
+	- no throw because that would unwind into the parent's main request loop inside the child process. Making it another webserv instance. So it would basically skips the the child's designated are of action and make it another webserv.
+
+Code:
+- 500 on cgi setup failure
+- 502 on script failure
+
+## Standard Requests Errors
+500s from the POST/DELETE handlers
+`try/catch` around the whole build block, so any ynexpected throw becomes `queue_error_response(...,500)` for that request.
+
+## Clients Erros
+So per client errors we drop the conneciton, if `send() == -1`, also if no `client_instance` is found we run:
+`epoll_ctl(DEL)` -> `close` -> `erase` -> `continue`.
+
+Since we can not use `errno` we cant tell a genuinely dead socket from a `EAGAIN`. So we just close the connection.
+If we happen to send a big buffer to a slow client, we would end up closing the connecition from not knowing the correct state, but its a `webserv` project limitation from the start.
+
+# CGI Timout
+We have `reap_timed_out_cgis` in `main_functions_utils.cpp`, it iterated on all saves cgi processes that are running and checking for the time span withtout a response.
+
+And in `main.cpp` on our main loop we run a `epoll_wait` that holds 1 seconds when server is idle, to pool everysecond while we have a cgi running, so we can monitor using `reap_timed_out_cgis`. The 1 seconds in it only holds it when no epoll event is received.
+
+- idle: sleeps up to 1 second
+- busy: wakes on every event and processses normally, no server lock.
 
 # Improvements
 

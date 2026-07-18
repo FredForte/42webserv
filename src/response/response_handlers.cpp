@@ -4,8 +4,28 @@
 #include <dirent.h>
 #include <fstream>
 #include <sstream>
+#include <sys/epoll.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+void queue_response(int epoll_instance, client_connection_struct& client,
+                    const HttpResponse& response) {
+	client.output_buffer = parseResponseToOutPut(response);
+	client.ready_to_respond = true;
+
+	epoll_event event_settings;
+	event_settings.events = EPOLLOUT;
+	event_settings.data.fd = client.client_fd;
+	epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client.client_fd, &event_settings);
+}
+
+void queue_error_response(int epoll_instance, client_connection_struct& client, int status_code) {
+	// getResponseMessage short-circuits any non-200 code to the configured (or
+	// default) error page and ignores the LocationConfig, so a throwaway one is fine.
+	HttpResponse response = getResponseMessage(status_code, client.ServerConfig_ptr,
+	                                           LocationConfig(), client.request_data);
+	queue_response(epoll_instance, client, response);
+}
 
 // Joins two path segments with exactly one '/' between them, regardless of
 // whether either side already has one.

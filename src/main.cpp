@@ -19,13 +19,15 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h> // to have "accept()"
+#include <sys/wait.h>
 #include <unistd.h>
 
-// todo: Fred: If cgi doesn't have a space, it all gets fucked
+// done: Fred: If cgi doesn't have a space, it all gets fucked, tokenizer was consuming the ';'
 // todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
-// todo: Fred: Fill in all HTTP response status codes. todo: Fred: our server must have default
-//             error pages if none are provided. todo: Fred: Clients must be able to upload files.
-// todo: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
+// done: Fred: Fill in all HTTP response status codes. 
+// done: Fred: our server must have default error pages if none are provided. 
+// done: Fred: Clients must be able to upload files.
+// done: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
 //             server to ensure it remains available at all times.
 // todo: Julio: think about having multiple listening fd's ready based on config file configuration
 // todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
@@ -37,15 +39,16 @@
 // to deliver different content (see
 //              Configuration file).
 // todo: Fred: Set the maximum allowed size for client request bodies.
-// todo: Fred: HTTP redirection.
-// todo: Fred: Enabling or disabling directory listing.
-// todo: Fred: Default file to serve when the requested resource is a directory.
-// todo: Fred: Uploading files from the clients to the server is authorized, and storage location
+// done: Fred: HTTP redirection.
+// done: Fred: Enabling or disabling directory listing.
+// done: Fred: Default file to serve when the requested resource is a directory.
+// done: Fred: Uploading files from the clients to the server is authorized, and storage location
 //             is provided.
-// todo: Fred: Test chunk sizes are in hexadecimal.
-// todo: Fred: Test chunk limit read between calls.
-// todo: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
-//             CRLF end line. todo: Fred: Set limit to how much we can read.
+// done: Fred: Test chunk sizes are in hexadecimal.
+// done: Fred: Test chunk limit read between calls.
+// done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
+//             CRLF end line. 
+// todo: Fred: Set limit to how much we can read.
 // ---
 // done: Fred: HTTP redirection.
 // done: Fred: Enabling or disabling directory listing.
@@ -59,7 +62,7 @@
 // the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
-// todo: Julio: Internal server error. Deal with it
+// done: Julio: Internal server error. Deal with it
 // todo: Julio: (hardcore) If CGI and Post, send data to CGI's stdin
 // todo: Julio: CGI returns structured content
 // todo: Julio: Test: The CGI should be run in the correct directory for relative path file access.
@@ -139,7 +142,11 @@ int main(int argc, char** argv) {
     std::map<int, ServerConfig*> fd_to_ServerConfig_ptr_map;
 
     while (true) {
-        int n = epoll_wait(epoll_instance, event_poll, 64, -1);
+		// when server is idle, poll everysecond while we have a cgi running
+		// so we can monitor using reap_timed_out_cgis.
+		// 1000 here holds this check when epoll is not signaling the server.
+        int wait_timeout = cgi_fd_map.empty() ? -1 : 1000;
+        int n = epoll_wait(epoll_instance, event_poll, 64, wait_timeout);
 
         for (int i = 0; i < n; i++) {
 
@@ -179,45 +186,52 @@ int main(int argc, char** argv) {
                 memset(our_buffer, 0, BUFFER_SIZE);
                 int bytes_read = read(this_fd, our_buffer, BUFFER_SIZE);
 
-                // Error case
+                // error case
                 if (bytes_read == -1) {
                     fail_and_exit_with_message(1, std::strerror(errno));
                 }
 
-                // "0" bytes read means EOF
-                if (bytes_read == 0 && event_poll[i].events & EPOLLHUP) {
-                    cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
+                // data still coming: append it and wait for more on a later iteration.
+                if (bytes_read > 0) {
+                    client_connection->cgi_instance.cgi_response.append(our_buffer, bytes_read);
+                    continue;
+                }
 
-                    if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL,
-                                  client_connection->cgi_instance.cgi_fd, NULL)
-                        == -1) {
+                // bytes_read == 0: the pipe hit EOF, so the CGI closed stdout and all
+                // of its output is now in cgi_response. 
+				// reap the child WITHOUT blocking (WNOHANG).
+				// if the CGI somehow hasn't exited yet, we leave the fd registered 
+				// and re-check on the next epoll wakeup to prevent blocking the server. 
+				// a cgi that closes stdout but keeps running would run here until the cgi_timeout kills it.
+                int status = 0;
+                pid_t reaped = waitpid(client_connection->cgi_instance.cgi_pid, &status, WNOHANG);
+                if (reaped == 0) {
+                    continue; // child not finished yet
+                }
 
-                        fail_and_exit_with_message(
-                            -1, std::string("Failed to modify epoll_instance with "
-                                            "\"epoll_ctl()\" function: ")
-                                    + std::strerror(errno));
-                    }
+                cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
+                if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, client_connection->cgi_instance.cgi_fd,
+                              NULL)
+                    == -1) {
+                    fail_and_exit_with_message(
+                        -1, std::string("Failed to modify epoll_instance with "
+                                        "\"epoll_ctl()\" function: ")
+                                + std::strerror(errno));
+                }
 
-                    // Turn the CGI script's raw output (its own header block +
-                    // body) into a proper HttpResponse, then serialize it the
-                    // same way every other response goes out.
+                // only send 502 on a positive failure signal (non-zero exit or killed by
+                // a signal). if we couldn't confirm the status, serve the output we have.
+                bool cgi_failed =
+                    (reaped > 0) && (!WIFEXITED(status) || WEXITSTATUS(status) != 0);
+
+                if (cgi_failed) {
+                    queue_error_response(epoll_instance, *client_connection, 502);
+                } else {
                     HttpResponse cgi_response = parseCgiResponse(
                         client_connection->cgi_instance.cgi_response,
                         *client_connection->ServerConfig_ptr, client_connection->request_data);
-
-                    client_connection->output_buffer.append(parseResponseToOutPut(cgi_response));
-
-                    epoll_event event_settings;
-                    event_settings.events = EPOLLOUT;
-                    event_settings.data.fd = client_connection->client_fd;
-
-                    epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection->client_fd,
-                              &event_settings);
-
-                    client_connection->ready_to_respond = true;
+                    queue_response(epoll_instance, *client_connection, cgi_response);
                 }
-
-                client_connection->cgi_instance.cgi_response.append(our_buffer, bytes_read);
                 continue;
             }
 
@@ -225,14 +239,18 @@ int main(int argc, char** argv) {
             if (event_poll[i].events & EPOLLOUT) {
                 std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
                 if (it == client_map.end()) {
-                    fail_and_exit_with_message(
-                        1, std::string("Why this client fd doesn't have an instance?")
-                               + std::strerror(errno));
+                    // no client state for this fd to respond with: drop it from epoll
+                    // and close it rather than taking down the whole server.
+                    epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
+                    close(this_fd);
+                    continue;
                 }
 
                 client_connection_struct& client_connection = it->second;
 
                 if (client_connection.ready_to_respond == false) {
+                  // any failure while building a standard response becomes a 500 for this client 
+                  try {
                     LocationConfig* responseLocation = findRequestedLocation(
                         *client_connection.ServerConfig_ptr, client_connection.request_data);
 
@@ -291,6 +309,10 @@ int main(int argc, char** argv) {
                     }
 
                     client_connection.ready_to_respond = true;
+                  } catch (const std::exception& e) {
+                      std::cerr << e.what() << std::endl;
+                      queue_error_response(epoll_instance, client_connection, 500);
+                  }
                 }
 
                 if (client_connection.ready_to_respond == true) {
@@ -299,7 +321,11 @@ int main(int argc, char** argv) {
                              client_connection.output_buffer.length(), MSG_NOSIGNAL);
 
                     if (bytes_send == -1) {
-                        fail_and_exit_with_message(-1, "Why send failed?");
+                        // the client is gone (reset / broken pipe): drop this one connection
+                        epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
+                        close(this_fd);
+                        client_map.erase(this_fd);
+                        continue;
                     }
 
                     client_connection.output_buffer.erase(0, bytes_send);
@@ -318,6 +344,9 @@ int main(int argc, char** argv) {
                 };
             }
         }
+
+        // After handling this batch of events, retire any CGI that ran too long.
+        reap_timed_out_cgis(epoll_instance, client_map, cgi_fd_map);
     }
 
     delete[] our_buffer;

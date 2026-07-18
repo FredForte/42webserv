@@ -21,4 +21,12 @@ bool is_this_a_listen_fd(std::map<int, ServerConfig*>& listen_fd_to_server_confi
 ServerConfig* get_server_config_instance_based_on_listen_fd(
     std::map<int, ServerConfig*>& listen_fd_to_server_config_map_ref, int this_fd);
 
+// kills, reaps, and responds 504 to any running cgi that has exceeded its
+// location's cgi_timeout. 
+// called once per event-loop wakeup so a cgi that never
+// produces output (or never exits) can't hang its client or run forever.
+void reap_timed_out_cgis(int epoll_instance,
+                         std::map<int, client_connection_struct>& client_map,
+                         std::map<int, int>& cgi_fd_map);
+
 #endif
