@@ -13,7 +13,7 @@
 #include <sys/socket.h>
 
 void new_connections_func(int epoll_instance, epoll_event& event_settings, int this_fd,
-                          std::map<int, ServerConfig*>& listen_fd_to_server_config_map,
+                          std::vector<ServerConfig>& server_config_vec,
                           std::map<int, client_connection_struct>& client_map,
                           std::map<int, ServerConfig*>& fd_to_ServerConfig_ptr_map) {
     sockaddr_storage their_addr;
@@ -36,26 +36,27 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
                     + std::strerror(errno));
     }
 
-    ServerConfig* server_config_ptr =
-        get_server_config_instance_based_on_listen_fd(listen_fd_to_server_config_map, this_fd);
+    // isso mova de lugar
+    // ServerConfig* server_config_ptr =
+    //     get_server_config_instance_based_on_port_and_hostname(server_config_vec, this_fd);
 
-    client_connection_struct client_connection;
-    client_connection.client_fd = fd_to_add;
-    client_connection.ready_to_respond = false;
-    client_connection.close_after_response = false;
-    client_connection.client_connection_type = STANDARD;
-    client_connection.cgi_instance.client_fd = fd_to_add;
-    client_connection.cgi_instance.cgi_fd = 0;
-    client_connection.cgi_instance.epoll_instance = epoll_instance;
+    // client_connection_struct client_connection;
+    // client_connection.client_fd = fd_to_add;
+    // client_connection.ready_to_respond = false;
+    // client_connection.close_after_response = false;
+    // client_connection.client_connection_type = STANDARD;
+    // client_connection.cgi_instance.client_fd = fd_to_add;
+    // client_connection.cgi_instance.cgi_fd = 0;
+    // client_connection.cgi_instance.epoll_instance = epoll_instance;
 
-    std::stringstream ss;
-    ss << client_connection.client_fd;
-    client_connection.cookie_id = ss.str();
-    client_connection.ServerConfig_ptr = server_config_ptr;
+    // std::stringstream ss;
+    // ss << client_connection.client_fd;
+    // client_connection.cookie_id = ss.str();
+    // client_connection.ServerConfig_ptr = server_config_ptr; // isso mova de lugar
 
-    client_map.insert(std::make_pair(fd_to_add, client_connection));
+    // client_map.insert(std::make_pair(fd_to_add, client_connection));
 
-    fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
+    // fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
 }
 
 // 413 Payload Too Large, mark the connection to close once it's sent.
@@ -67,6 +68,7 @@ static void reject_with_413(int epoll_instance, client_connection_struct& client
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
                                int epoll_instance,
                                std::map<int, client_connection_struct>& client_map,
+                               std::vector<ServerConfig>& server_config_vec,
                                std::map<int, int>& cgi_fd_map, char* this_bin_path_from_argv) {
 
     memset(our_buffer, 0, BUFFER_SIZE);
@@ -101,12 +103,27 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
 
+    client_connection_struct a_client_connection;
+    client_connection_struct* client_connection_ptr = NULL;
+
     if (it == client_map.end()) {
-        fail_and_exit_with_message(1, std::string("Why this client fd doesn't have a instance?")
-                                          + std::strerror(errno));
+        a_client_connection.client_fd = this_fd;
+        a_client_connection.ready_to_respond = false;
+        a_client_connection.close_after_response = false;
+        a_client_connection.client_connection_type = STANDARD;
+        a_client_connection.cgi_instance.client_fd = this_fd;
+        a_client_connection.cgi_instance.cgi_fd = 0;
+        a_client_connection.cgi_instance.epoll_instance = epoll_instance;
+
+        std::stringstream ss;
+        ss << a_client_connection.client_fd;
+        a_client_connection.cookie_id = ss.str();
     }
 
-    client_connection_struct& client_connection = it->second;
+    if (client_connection_ptr == NULL) {
+        client_connection_struct& client_connection = it->second;
+    }
+    client_connection_struct& client_connection = *client_connection_ptr;
 
     std::cout.write(our_buffer, bytes_read);
     client_connection.input_buffer.append(our_buffer, bytes_read);
@@ -117,8 +134,8 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
     if (length == std::string::npos) {
-		// check the receivd body size, preventing it from exceeding whats set on
-		// conf file, also adds a header size allowance with a macro.
+        // check the receivd body size, preventing it from exceeding whats set on
+        // conf file, also adds a header size allowance with a macro.
         const size_t HEADER_ALLOWANCE = 16384;
         if (max_body > 0 && client_connection.input_buffer.size() > max_body + HEADER_ALLOWANCE) {
             reject_with_413(epoll_instance, client_connection);
@@ -129,11 +146,27 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     // create and save request structure
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
+
+    ServerConfig* server_config_ptr =
+        get_server_config_instance_based_on_port_and_hostname(server_config_vec, this_fd, http_request);
+
+    if (server_config_ptr == NULL) {
+        queue_error_response(epoll_instance, client_connection, 400);
+        client_connection.close_after_response = true;
+        return;
+    }
+
+    a_client_connection.ServerConfig_ptr = server_config_ptr; // isso mova de lugar
+    client_map.insert(std::make_pair(this_fd, a_client_connection));
+    fd_to_ServerConfig_ptr_map.insert(std::make_pair(this_fd, server_config_ptr));
+
+
+
     client_connection.input_buffer.erase(0, length);
     client_connection.request_data = request;
 
-	// get connection type from parsed request, defaults by the HTTP version standards
-	// if not defined on the request
+    // get connection type from parsed request, defaults by the HTTP version standards
+    // if not defined on the request
     client_connection.close_after_response = isCloseConnection(determineConnection(request));
 
     // Exact body-size enforcement now that the full request is decoded.
@@ -142,12 +175,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         return;
     }
 
-	// find location to determine request type
+    // find location to determine request type
     LocationConfig* responseLocation =
         findRequestedLocation(*client_connection.ServerConfig_ptr, request);
 
     // cgi request
     if (responseLocation && !responseLocation->cgi_extensions.empty()) {
+
         // requested executable
         std::string this_concat = std::string(".") + getFileExtension(request.path);
         std::map<std::string, std::string>::iterator it =

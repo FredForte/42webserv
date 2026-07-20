@@ -37,23 +37,61 @@ get_client_instance_based_on_cgi_fd(const std::map<int, int>& cgi_fd_map,
     return &client_map_result_it->second;
 }
 
-bool is_this_a_listen_fd(std::map<int, ServerConfig*>& listen_fd_to_server_config_map_ref,
-                         int this_fd) {
-    return listen_fd_to_server_config_map_ref.find(this_fd)
-           != listen_fd_to_server_config_map_ref.end();
+bool is_this_a_listen_fd(std::set<int>& listen_fds_created, int this_fd) {
+    return listen_fds_created.count(this_fd);
 }
 
-// Can throw exception
-ServerConfig* get_server_config_instance_based_on_listen_fd(
-    std::map<int, ServerConfig*>& listen_fd_to_server_config_map_ref, int this_fd) {
+ServerConfig* get_server_config_instance_based_on_port_and_hostname(
+    std::vector<ServerConfig>& server_config_vec, int this_fd, HttpRequest http_request) {
 
-    std::map<int, ServerConfig*>::iterator it = listen_fd_to_server_config_map_ref.find(this_fd);
+    std::map<std::string, std::string>::iterator it = http_request.headers.find("HOST");
 
-    if (it == listen_fd_to_server_config_map_ref.end()) {
-        throw std::runtime_error("Should't this fd be a listen fd one?!");
+    if (it == http_request.headers.end()) {
+        return NULL;
     }
 
-    return it->second;
+    std::map<std::string, std::string>::iterator it = http_request.headers.
+
+    if (it == http_request.headers.end()) {
+        return NULL;
+    }
+
+    std::string& host_name = it->second;
+
+    bool port_found = false;
+    size_t server_config_vec_size = server_config_vec.size();
+    for (size_t i = 0; i < server_config_vec_size; i++) {
+
+        size_t listens_size = server_config_vec[i].listens.size();
+        for (size_t j = 0; j < listens_size; j++) {
+
+            if (ports_created.count(server_config_vec[i].listens[j].port)) {
+                continue;
+            }
+
+            std::stringstream ss_port_value;
+            ss_port_value << server_config_vec[i].listens[j].port;
+
+            int listen_fd_instance = return_a_fully_prepared_socket(ss_port_value.str().c_str());
+
+            if (listen(listen_fd_instance, 64) == -1) {
+                fail_and_exit_with_message(1, std::strerror(errno));
+            }
+
+            event_settings.events = EPOLLIN; // me avisa quando tiver dado pra ler
+            event_settings.data.fd =
+                listen_fd_instance; // quando o evento voltar, quero saber qual fd é
+
+            if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd_instance, &event_settings)
+                == -1) {
+                fail_and_exit_with_message(1, std::string("Failed to add listening socket: ")
+                                                  + std::strerror(errno));
+            }
+
+            ports_created.insert(server_config_vec[i].listens[j].port);
+            listen_fds_created.insert(listen_fd_instance);
+        }
+    }
 }
 // collect the timedout cgi processess
 // then kill and readp them using SIGKILL.

@@ -25,13 +25,16 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
 
     switch (cgi_command.cgi_type) {
         case BINARY:
-            if (cgi_command.path_to_program.empty())
+            if (cgi_command.path_to_program.empty()) {
                 throw MalformedCGIStruct();
+            }
             break;
 
         case INTERPRETED_LANGUAGE:
-            if (cgi_command.interpreted_language_path == NULL || cgi_command.path_to_program.empty())
+            if (cgi_command.interpreted_language_path == NULL
+                || cgi_command.path_to_program.empty()) {
                 throw MalformedCGIStruct();
+            }
             break;
 
         default:
@@ -69,7 +72,7 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
     unlink(path.c_str()); // the open fd keeps it alive; removed once all fds close
 
     ssize_t total_written = 0;
-    while (total_written < request_body.size()) {
+    while (static_cast<size_t>(total_written) < request_body.size()) {
         ssize_t written_on_loop = write(stdin_fd, request_body.data() + total_written,
                                         request_body.size() - total_written);
 
@@ -108,9 +111,9 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         close(file_descriptors[0]);
         close(file_descriptors[1]);
 
-		// run the cgi program from its own directory, so it can open/access files by
-		// relative path. chdir into the scripts dir, if valid,
-		// reference it by basename so execv uses it as cwd.
+        // run the cgi program from its own directory, so it can open/access files by
+        // relative path. chdir into the scripts dir, if valid,
+        // reference it by basename so execv uses it as cwd.
         std::string script_ref = cgi_command.path_to_program;
         std::string::size_type slash = cgi_command.path_to_program.rfind('/');
         if (slash != std::string::npos) {
@@ -146,10 +149,10 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         }
         envp_vector.push_back(NULL);
 
-		// cant throw on execve, it would become another webserv instance
-		// _exit(1) to get rid of all data and prevent unwanted bytes from
-		// being written to buffer, also prevent double executions that
-		// can be cause by std::exit()
+        // cant throw on execve, it would become another webserv instance
+        // _exit(1) to get rid of all data and prevent unwanted bytes from
+        // being written to buffer, also prevent double executions that
+        // can be cause by std::exit()
         if (execve(exec_path, const_cast<char* const*>(&argv_vector[0]),
                    const_cast<char* const*>(&envp_vector[0]))
             == -1) {

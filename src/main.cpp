@@ -14,6 +14,7 @@
 #include <cstring>
 #include <iostream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <sys/epoll.h>
@@ -23,22 +24,20 @@
 #include <unistd.h>
 
 // done: Fred: If cgi doesn't have a space, it all gets fucked, tokenizer was consuming the ';'
-// todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
-// done: Fred: Fill in all HTTP response status codes.
+// validate: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
 // done: Fred: our server must have default error pages if none are provided.
 // done: Fred: Clients must be able to upload files.
 // done: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
 //             server to ensure it remains available at all times.
-// todo: Julio: think about having multiple listening fd's ready based on config file configuration
-// todo: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
-// can properly answer done: Fred: Fix content length to whole body HTTP response (/r/n/r/n) done:
-// Fred: Fill in all HTTP response status codes. done: Fred: our server must have default error
-// pages if none are provided. done: Fred: Clients must be able to upload files. done: Fred: You
-// need at least the GET, POST, and DELETE methods. todo: Both: Stress test your server to ensure it
-// remains available at all times. todo: Both: Your server must be able to listen to multiple ports
-// to deliver different content (see
-//              Configuration file).
-// todo: Fred: Set the maximum allowed size for client request bodies.
+// done: Julio: think about having multiple listening fd's ready based on config file configuration
+// done: Julio: client instance struct will need to have a pointer to a struct ServerConfig, so it
+//              can properly answer
+// done: Fred: Clients must be able to upload files. done: Fred: You
+//             need at least the GET, POST, and DELETE methods. todo: Both: Stress test your server
+//             to ensure it remains available at all times.
+// done: Both: Your server must be able to listen to multiple ports to deliver different content
+//             (see Configuration file).
+// done: Fred: Set the maximum allowed size for client request bodies.
 // done: Fred: HTTP redirection.
 // done: Fred: Enabling or disabling directory listing.
 // done: Fred: Default file to serve when the requested resource is a directory.
@@ -48,18 +47,18 @@
 // done: Fred: Test chunk limit read between calls.
 // done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
 //             CRLF end line.
-// todo: Fred: Set limit to how much we can read.
+// validate: Fred: Set limit to how much we can read.
 // ---
 // done: Fred: HTTP redirection.
 // done: Fred: Enabling or disabling directory listing.
 // done: Fred: Default file to serve when the requested resource is a directory.
 // done: Fred: Uploading files from the clients to the server is authorized, and storage location
-//              is provided.
+//             is provided.
 // done: Fred: Test chunk sizes are in hexadecimal.
 // done: Fred: Test chunk limit read between calls.
 // done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
-// CRLF end line. todo: Fred: Set limit to how much we can read. todo: Julio: Have a careful look at
-// the environment variables involved in the web server-CGI
+//             CRLF end line.
+// todo: Julio: Have a careful look at the environment variables involved in the web server-CGI
 //              communication. The full request and arguments provided by the client must be
 //              available to the CGI.
 // done: Julio: Internal server error. Deal with it
@@ -68,7 +67,7 @@
 // todo: Julio: Test: The CGI should be run in the correct directory for relative path file access.
 // todo: Julio: Support cookies and session management (provide simple examples).
 // ---
-// todo: Both: Your server must be able to listen to multiple ports to deliver different content
+// done: Both: Your server must be able to listen to multiple ports to deliver different content
 //             (see Configuration file).
 // todo: Both: You must provide configuration files and default files to test and demonstrate that
 //             every feature works during the evaluation.
@@ -96,14 +95,43 @@ int main(int argc, char** argv) {
     // pass 0, it won't close.
     int epoll_instance = epoll_create1(EPOLL_CLOEXEC);
 
-    // std::map<listen_fd, ServerConfig*>
-    std::map<int, ServerConfig*> listen_fd_to_server_config_map;
+    // // std::map<listen_fd, ServerConfig*>
+    // std::map<int, ServerConfig*> listen_fd_to_server_config_map;
+
+    // Vai criar um socket. Caso já exista, significa que precisa ser atrelado a outra
+    // server_config. Talvez a server config que ainda não tenha atrelação. Só não pode ser a que já
+    // existe. Pega o nome então!!! Mas se tem nome, ent
+
+    // Para o Fred:
+    // Temos um único socket para múltiplos servidores. Certo? É isso. A depender do host_name,
+    // precisamos responder com o server correto.
+    //
+    // Quando temos uma nova conexão, ela bate no loop principal e sabemos que existe um socket
+    // aberto naquela porta. Afinal, é um socket um para muitos (um socket). Ele recepciona, NÃO LÊ
+    // A REQUISIÇÃO (a função dele não é essa), mas cria um novo fd para lidar com a conexão dele.
+    //
+    // Atualmente, esse fd recém-recebido é automaticamente atrelado à um server config. E isso é
+    // fácil, pois existe uma atrelamento inicial (no começo dessa main) de sockets fd para server
+    // config. Essa premissa inicial feita lá atrás é errada, pois é possível ter um socket fd que
+    // aponta para dois ou mais server configs. Então, na hora de aceitar e criar um novo mapeamento
+    // entre fd's, esse atrelamento precisa ser mais refinado e checar pelo header de host name. Na
+    // prática, é melhor não ter um map de socket fd para config, e só checar via std::set se aquele
+    // socket já foi utilizado ou não. Se foi, só pula ele na hora da criação do socket.
+    //03:5903:59
+    // Já na hora de uso, utilize uma helper funtcion para achar o seu server_config correto.
+
+    std::set<int> ports_created;
+    std::set<int> listen_fds_created;
 
     size_t server_config_vec_size = server_config_vec.size();
     for (size_t i = 0; i < server_config_vec_size; i++) {
 
         size_t listens_size = server_config_vec[i].listens.size();
         for (size_t j = 0; j < listens_size; j++) {
+
+            if (ports_created.count(server_config_vec[i].listens[j].port)) {
+                continue;
+            }
 
             std::stringstream ss_port_value;
             ss_port_value << server_config_vec[i].listens[j].port;
@@ -124,8 +152,8 @@ int main(int argc, char** argv) {
                                                   + std::strerror(errno));
             }
 
-            listen_fd_to_server_config_map.insert(
-                std::make_pair(listen_fd_instance, &server_config_vec[i]));
+            ports_created.insert(server_config_vec[i].listens[j].port);
+            listen_fds_created.insert(listen_fd_instance);
         }
     }
 
@@ -153,17 +181,16 @@ int main(int argc, char** argv) {
             int this_fd = event_poll[i].data.fd;
 
             // new connections case
-            if (is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd)) {
+            if (is_this_a_listen_fd(listen_fds_created, this_fd)) {
 
-                new_connections_func(epoll_instance, event_settings, this_fd,
-                                     listen_fd_to_server_config_map, client_map,
-                                     fd_to_ServerConfig_ptr_map);
+                new_connections_func(epoll_instance, event_settings, this_fd, server_config_vec,
+                                     client_map, fd_to_ServerConfig_ptr_map);
                 continue;
             }
 
             // standard connections case. Only client connections are accepted
             if (event_poll[i].events & EPOLLIN
-                && is_this_a_listen_fd(listen_fd_to_server_config_map, this_fd) == false
+                && is_this_a_listen_fd(listen_fds_created, this_fd) == false
                 && is_this_a_cgi_fd(cgi_fd_map, this_fd) == false) {
 
                 standard_connections_func(this_fd, BUFFER_SIZE, our_buffer, epoll_instance,
@@ -332,8 +359,8 @@ int main(int argc, char** argv) {
                     client_connection.output_buffer.erase(0, bytes_send);
                 }
                 // epollout drain, close or keep alive based on conneciton type from
-				// request, or set to close if request body exceeded max size and
-				// has been responsed as 413.
+                // request, or set to close if request body exceeded max size and
+                // has been responsed as 413.
                 if (client_connection.output_buffer.empty()) {
                     if (client_connection.close_after_response) {
                         int fd = client_connection.client_fd;
