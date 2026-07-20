@@ -42,6 +42,7 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
     client_connection_struct client_connection;
     client_connection.client_fd = fd_to_add;
     client_connection.ready_to_respond = false;
+    client_connection.close_after_response = false;
     client_connection.client_connection_type = STANDARD;
     client_connection.cgi_instance.client_fd = fd_to_add;
     client_connection.cgi_instance.cgi_fd = 0;
@@ -55,6 +56,12 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
     client_map.insert(std::make_pair(fd_to_add, client_connection));
 
     fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
+}
+
+// 413 Payload Too Large, mark the connection to close once it's sent.
+static void reject_with_413(int epoll_instance, client_connection_struct& client) {
+    queue_error_response(epoll_instance, client, 413);
+    client.close_after_response = true;
 }
 
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
@@ -106,16 +113,34 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     HttpRequestParser req_parser;
 
+    size_t max_body = client_connection.ServerConfig_ptr->client_max_body_size;
+
     size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
     if (length == std::string::npos) {
+		// check the receivd body size, preventing it from exceeding whats set on
+		// conf file, also adds a header size allowance with a macro.
+        const size_t HEADER_ALLOWANCE = 16384;
+        if (max_body > 0 && client_connection.input_buffer.size() > max_body + HEADER_ALLOWANCE) {
+            reject_with_413(epoll_instance, client_connection);
+        }
         return;
     }
 
 	// create and save request structure
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
-    client_connection.input_buffer.erase(0, length);	
+    client_connection.input_buffer.erase(0, length);
     client_connection.request_data = request;
+
+	// get connection type from parsed request, defaults by the HTTP version standards
+	// if not defined on the request
+    client_connection.close_after_response = isCloseConnection(determineConnection(request));
+
+    // Exact body-size enforcement now that the full request is decoded.
+    if (max_body > 0 && request.body.size() > max_body) {
+        reject_with_413(epoll_instance, client_connection);
+        return;
+    }
 
 	// find location to determine request type
     LocationConfig* responseLocation =
@@ -159,14 +184,10 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         // fills cgi_command block:
         client_connection.cgi_instance.cgi_command.interpreted_language_path = it->second.c_str();
 
-        std::string a_cpp_string = joinPath(this_bin_path_from_argv_cpp_str, request.path);
-		// todo: Julio: This part here might lose reference to the created c string on a second call
-		// a duplicate would be the best to keep it saved inside the struct
-		// or save the std::string and olny convert to c when needed for execution
-        client_connection.cgi_instance.cgi_command.path_to_program = a_cpp_string.c_str();
-
-        client_connection.cgi_instance.cgi_command.args.push_back(
-            client_connection.cgi_instance.cgi_command.path_to_program);
+        // path_to_program is an owned std::string now, so it stays valid for the
+        // life of the connection instead of dangling after this function returns.
+        client_connection.cgi_instance.cgi_command.path_to_program =
+            joinPath(this_bin_path_from_argv_cpp_str, request.path);
 
         client_connection.cgi_instance.cgi_command.envp =
             buildCgiEnv(request, *client_connection.ServerConfig_ptr);

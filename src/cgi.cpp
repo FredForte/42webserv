@@ -23,28 +23,19 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
 
     cgi_command_struct& cgi_command = cgi_instance.cgi_command;
 
-    const char* bin_path = NULL;
-
     switch (cgi_command.cgi_type) {
-        case NOT_DEFINED_YET:
-            throw MalformedCGIStruct();
-            break;
-
         case INTERPRETED_LANGUAGE:
-            bin_path = cgi_command.interpreted_language_path;
+            if (cgi_command.interpreted_language_path == NULL || cgi_command.path_to_program.empty())
+                throw MalformedCGIStruct();
             break;
 
         case BINARY:
-            bin_path = cgi_command.path_to_program;
+            if (cgi_command.path_to_program.empty())
+                throw MalformedCGIStruct();
             break;
 
         default:
             throw MalformedCGIStruct();
-            break;
-    }
-
-    if (bin_path == NULL) {
-        throw MalformedCGIStruct();
     }
 
 	// request.body is the complete body, we need to make it into a file so the 
@@ -114,12 +105,31 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         close(file_descriptors[0]);
         close(file_descriptors[1]);
 
+		// run the cgi program from its own directory, so it can open/access files by 
+		// relative path. chdir into the scripts dir, if valid,
+		// reference it by basename so execv uses it as cwd.
+        std::string script_ref = cgi_command.path_to_program;
+        std::string::size_type slash = cgi_command.path_to_program.rfind('/');
+        if (slash != std::string::npos) {
+            std::string script_dir = cgi_command.path_to_program.substr(0, slash);
+            if (chdir(script_dir.c_str()) == -1) {
+                std::cerr << "CGI chdir failed: " << std::strerror(errno) << std::endl;
+                _exit(1);
+            }
+            script_ref = cgi_command.path_to_program.substr(slash + 1);
+        }
+
         std::vector<const char*> argv_vector;
         std::vector<std::string>::iterator it;
+        const char* exec_path;
 
         if (cgi_command.cgi_type == INTERPRETED_LANGUAGE) {
+            exec_path = cgi_command.interpreted_language_path;
             argv_vector.push_back(cgi_command.interpreted_language_path);
-            argv_vector.push_back(cgi_command.path_to_program);
+            argv_vector.push_back(script_ref.c_str());
+        } else { // BINARY: the script itself is the program, argv[0]
+            exec_path = script_ref.c_str();
+            argv_vector.push_back(script_ref.c_str());
         }
 
         for (it = cgi_command.args.begin(); it != cgi_command.args.end(); it++) {
@@ -137,7 +147,7 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
 		// _exit(1) to get rid of all data and prevent unwanted bytes from
 		// being written to buffer, also prevent double executions that
 		// can be cause by std::exit()
-        if (execve(bin_path, const_cast<char* const*>(&argv_vector[0]),
+        if (execve(exec_path, const_cast<char* const*>(&argv_vector[0]),
                    const_cast<char* const*>(&envp_vector[0]))
             == -1) {
             std::cerr << "Failed to execve CGI process: " << std::strerror(errno) << std::endl;

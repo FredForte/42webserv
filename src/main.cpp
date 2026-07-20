@@ -330,8 +330,18 @@ int main(int argc, char** argv) {
 
                     client_connection.output_buffer.erase(0, bytes_send);
                 }
-                // todo: Decide to close or keep alive based on connection.type
+                // epollout drain, close or keep alive based on conneciton type from
+				// request, or set to close if request body exceeded max size and
+				// has been responsed as 413.
                 if (client_connection.output_buffer.empty()) {
+                    if (client_connection.close_after_response) {
+                        int fd = client_connection.client_fd;
+                        epoll_ctl(epoll_instance, EPOLL_CTL_DEL, fd, NULL);
+                        close(fd);
+                        client_map.erase(fd);
+                        continue;
+                    }
+
                     epoll_event event_settings;
                     event_settings.events = EPOLLIN;
                     event_settings.data.fd = client_connection.client_fd;
