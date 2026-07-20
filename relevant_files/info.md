@@ -195,7 +195,17 @@ And in `main.cpp` on our main loop we run a `epoll_wait` that holds 1 seconds wh
 - idle: sleeps up to 1 second
 - busy: wakes on every event and processses normally, no server lock.
 
+# Client Max Body Size
+We have a DoS guard while the request is still incomplete, if the buffer brows past `client_max_body_size + 16KB` (header size) before a full request arrives, it rejects with 413. This prevents a client from exhausting memory with a huge or never-ending body.
+
+`0` as max body on location .conf means unlimited (same as nginx does).
+
+On `client_connection.hpp, main.cpp` we have `close_after_response`flag, making the EPOLLOUT loop drop the connection once a terminal response (413) is sent.
+
 # Improvements
 
 ## Root Setting on .conf
 On the `.conf` file, right now we need to have a `root` set for each location that allows for the methog `GET`, it would be better in the future to have a fallback from `location` lever to `server` level settings in case a `GET` does not find a set `root`. 
+
+Have a new header file with the server defaults, so it can be easily tuned-up.
+with std max timeout, header_allowance size, buffer_size for our input, ...

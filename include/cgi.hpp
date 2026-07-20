@@ -21,13 +21,12 @@ enum cgi_type_enum {
 
 struct cgi_command_struct {
     cgi_type_enum cgi_type;
-    const char* interpreted_language_path;
-    const char* path_to_program;
+    const char* interpreted_language_path; // points into the config (long-lived)
+    std::string path_to_program;           // owned, so it can't dangle after setup
     std::vector<std::string> args;
     std::vector<std::string> envp;
 
-    cgi_command_struct()
-        : cgi_type(NOT_DEFINED_YET), interpreted_language_path(NULL), path_to_program(NULL) {}
+    cgi_command_struct() : cgi_type(NOT_DEFINED_YET), interpreted_language_path(NULL) {}
 };
 
 struct cgi_instance_struct {

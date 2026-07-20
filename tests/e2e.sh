@@ -81,6 +81,28 @@ assert_body() {
 	verbose_dump "$got" "$@"
 }
 
+# conn_probe HOST PORT close|keep  ->  prints "closed" if the server closed the
+# socket after responding, "open" if it kept it alive (recv blocked to timeout).
+conn_probe() {
+	python3 - "$1" "$2" "$3" <<'PY'
+import socket, sys
+host, port, mode = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+req = b"GET / HTTP/1.1\r\nHost: x\r\n"
+if mode == "close":
+    req += b"Connection: close\r\n"
+req += b"\r\n"
+s = socket.create_connection((host, port), timeout=3)
+s.sendall(req)
+s.settimeout(3)
+try:
+    while True:
+        if not s.recv(4096):
+            print("closed"); break
+except socket.timeout:
+    print("open")
+PY
+}
+
 # --- build ---
 if ! make -C "$ROOT" >/dev/null 2>&1; then
 	echo "build failed" >&2
@@ -127,6 +149,18 @@ assert_body   "CGI POST body -> stdin" "body=\[hello cgi\]" -X POST --data-binar
 assert_body   "CGI POST CONTENT_LENGTH" "len=9" -X POST --data-binary "hello cgi" "http://$HOST:8080/cgi-bin/echo.py"
 assert_status "CGI non-zero exit -> 502" 502 "http://$HOST:8080/cgi-bin/fail.py"
 assert_status "CGI runaway -> 504 (cgi_timeout)" 504 "http://$HOST:8080/cgi-bin/slow.py"
+assert_body   "CGI runs in its own dir (relative file read)" "relative-read-ok" "http://$HOST:8080/cgi-bin/readfile.py"
+
+echo "== client_max_body_size =="
+# The 8082 server caps bodies at 1000 bytes.
+BIG_BODY="$(python3 -c "print('x' * 2000, end='')")"
+SMALL_BODY="$(python3 -c "print('y' * 100, end='')")"
+assert_status "over-limit POST -> 413" 413 -X POST --data-binary "$BIG_BODY" "http://$HOST:8082/anything"
+assert_status "under-limit POST -> not 413" 404 -X POST --data-binary "$SMALL_BODY" "http://$HOST:8082/anything"
+
+echo "== connection handling =="
+if [ "$(conn_probe "$HOST" 8080 close)" = "closed" ]; then pass "Connection: close closes the socket"; else fail "Connection: close closes the socket"; fi
+if [ "$(conn_probe "$HOST" 8080 keep)" = "open" ]; then pass "HTTP/1.1 keep-alive keeps the socket open"; else fail "HTTP/1.1 keep-alive keeps the socket open"; fi
 
 echo "== robustness (crash/hang/leak regressions) =="
 assert_status "location-less server (8082) -> 404, no crash" 404 "http://$HOST:8082/anything"
