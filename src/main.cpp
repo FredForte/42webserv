@@ -24,8 +24,8 @@
 
 // done: Fred: If cgi doesn't have a space, it all gets fucked, tokenizer was consuming the ';'
 // todo: Fred: Fix content length to whole body HTTP response (/r/n/r/n)
-// done: Fred: Fill in all HTTP response status codes. 
-// done: Fred: our server must have default error pages if none are provided. 
+// done: Fred: Fill in all HTTP response status codes.
+// done: Fred: our server must have default error pages if none are provided.
 // done: Fred: Clients must be able to upload files.
 // done: Fred: You need at least the GET, POST, and DELETE methods. todo: Both: Stress test your
 //             server to ensure it remains available at all times.
@@ -47,7 +47,7 @@
 // done: Fred: Test chunk sizes are in hexadecimal.
 // done: Fred: Test chunk limit read between calls.
 // done: Fred: Test if the chuncked content has a "/r/n" and it's still accepted, not treated as a
-//             CRLF end line. 
+//             CRLF end line.
 // todo: Fred: Set limit to how much we can read.
 // ---
 // done: Fred: HTTP redirection.
@@ -142,9 +142,9 @@ int main(int argc, char** argv) {
     std::map<int, ServerConfig*> fd_to_ServerConfig_ptr_map;
 
     while (true) {
-		// when server is idle, poll everysecond while we have a cgi running
-		// so we can monitor using reap_timed_out_cgis.
-		// 1000 here holds this check when epoll is not signaling the server.
+        // when server is idle, poll everysecond while we have a cgi running
+        // so we can monitor using reap_timed_out_cgis.
+        // 1000 here holds this check when epoll is not signaling the server.
         int wait_timeout = cgi_fd_map.empty() ? -1 : 1000;
         int n = epoll_wait(epoll_instance, event_poll, 64, wait_timeout);
 
@@ -198,11 +198,12 @@ int main(int argc, char** argv) {
                 }
 
                 // bytes_read == 0: the pipe hit EOF, so the CGI closed stdout and all
-                // of its output is now in cgi_response. 
-				// reap the child WITHOUT blocking (WNOHANG).
-				// if the CGI somehow hasn't exited yet, we leave the fd registered 
-				// and re-check on the next epoll wakeup to prevent blocking the server. 
-				// a cgi that closes stdout but keeps running would run here until the cgi_timeout kills it.
+                // of its output is now in cgi_response.
+                // reap the child WITHOUT blocking (WNOHANG).
+                // if the CGI somehow hasn't exited yet, we leave the fd registered
+                // and re-check on the next epoll wakeup to prevent blocking the server.
+                // a cgi that closes stdout but keeps running would run here until the cgi_timeout
+                // kills it.
                 int status = 0;
                 pid_t reaped = waitpid(client_connection->cgi_instance.cgi_pid, &status, WNOHANG);
                 if (reaped == 0) {
@@ -213,16 +214,15 @@ int main(int argc, char** argv) {
                 if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, client_connection->cgi_instance.cgi_fd,
                               NULL)
                     == -1) {
-                    fail_and_exit_with_message(
-                        -1, std::string("Failed to modify epoll_instance with "
-                                        "\"epoll_ctl()\" function: ")
-                                + std::strerror(errno));
+                    fail_and_exit_with_message(-1,
+                                               std::string("Failed to modify epoll_instance with "
+                                                           "\"epoll_ctl()\" function: ")
+                                                   + std::strerror(errno));
                 }
 
                 // only send 502 on a positive failure signal (non-zero exit or killed by
                 // a signal). if we couldn't confirm the status, serve the output we have.
-                bool cgi_failed =
-                    (reaped > 0) && (!WIFEXITED(status) || WEXITSTATUS(status) != 0);
+                bool cgi_failed = (reaped > 0) && (!WIFEXITED(status) || WEXITSTATUS(status) != 0);
 
                 if (cgi_failed) {
                     queue_error_response(epoll_instance, *client_connection, 502);
@@ -249,70 +249,71 @@ int main(int argc, char** argv) {
                 client_connection_struct& client_connection = it->second;
 
                 if (client_connection.ready_to_respond == false) {
-                  // any failure while building a standard response becomes a 500 for this client 
-                  try {
-                    LocationConfig* responseLocation = findRequestedLocation(
-                        *client_connection.ServerConfig_ptr, client_connection.request_data);
+                    // any failure while building a standard response becomes a 500 for this client
+                    try {
+                        LocationConfig* responseLocation = findRequestedLocation(
+                            *client_connection.ServerConfig_ptr, client_connection.request_data);
 
-                    if (responseLocation) {
+                        if (responseLocation) {
 
-                        // redirection case
-                        if (responseLocation->redirect_code != 0) {
+                            // redirection case
+                            if (responseLocation->redirect_code != 0) {
 
-                            // A "return" location answers every method the same way, so this is
-                            // checked ahead of the methods list instead of going through it.
-                            HttpResponse responseMessage = buildRedirectResponse(
-                                *client_connection.ServerConfig_ptr, *responseLocation,
-                                client_connection.request_data);
+                                // A "return" location answers every method the same way, so this is
+                                // checked ahead of the methods list instead of going through it.
+                                HttpResponse responseMessage = buildRedirectResponse(
+                                    *client_connection.ServerConfig_ptr, *responseLocation,
+                                    client_connection.request_data);
 
-                            client_connection.output_buffer =
-                                parseResponseToOutPut(responseMessage);
+                                client_connection.output_buffer =
+                                    parseResponseToOutPut(responseMessage);
 
-                            // method allowed check
-                        } else if (findStringOnVector(responseLocation->methods,
-                                                      client_connection.request_data.method)) {
-                            // if (client_connection.request_data.method == "GET") {
-                            //     // create response for get method
-                            //     HttpResponse responseMessage = getResponseMessage(
-                            //         200, client_connection.ServerConfig_ptr, *responseLocation,
-                            //         client_connection.request_data);
+                                // method allowed check
+                            } else if (findStringOnVector(responseLocation->methods,
+                                                          client_connection.request_data.method)) {
+                                // if (client_connection.request_data.method == "GET") {
+                                //     // create response for get method
+                                //     HttpResponse responseMessage = getResponseMessage(
+                                //         200, client_connection.ServerConfig_ptr,
+                                //         *responseLocation, client_connection.request_data);
 
-                            //     client_connection.output_buffer =
-                            //         parseResponseToOutPut(responseMessage);
-                            // }
+                                //     client_connection.output_buffer =
+                                //         parseResponseToOutPut(responseMessage);
+                                // }
 
-                            // getResponseMessage dispatches on request_data.method
-                            // internally (GET/POST/DELETE each have their own handler
-                            // in response_handlers.cpp).
-                            HttpResponse responseMessage = getResponseMessage(
-                                200, client_connection.ServerConfig_ptr, *responseLocation,
-                                client_connection.request_data);
+                                // getResponseMessage dispatches on request_data.method
+                                // internally (GET/POST/DELETE each have their own handler
+                                // in response_handlers.cpp).
+                                HttpResponse responseMessage = getResponseMessage(
+                                    200, client_connection.ServerConfig_ptr, *responseLocation,
+                                    client_connection.request_data);
 
-                            client_connection.output_buffer =
-                                parseResponseToOutPut(responseMessage);
+                                client_connection.output_buffer =
+                                    parseResponseToOutPut(responseMessage);
 
+                            } else {
+                                HttpResponse responseMessage = getResponseMessage(
+                                    405, client_connection.ServerConfig_ptr, *responseLocation,
+                                    client_connection.request_data);
+                                client_connection.output_buffer =
+                                    parseResponseToOutPut(responseMessage);
+                            }
+
+                            // if response location is not found i.e. NULL
                         } else {
                             HttpResponse responseMessage = getResponseMessage(
-                                405, client_connection.ServerConfig_ptr, *responseLocation,
+                                404, client_connection.ServerConfig_ptr, LocationConfig(),
                                 client_connection.request_data);
+
                             client_connection.output_buffer =
                                 parseResponseToOutPut(responseMessage);
                         }
 
-                        // if response location is not found i.e. NULL
-                    } else {
-                        HttpResponse responseMessage =
-                            getResponseMessage(404, client_connection.ServerConfig_ptr,
-                                               LocationConfig(), client_connection.request_data);
-
-                        client_connection.output_buffer = parseResponseToOutPut(responseMessage);
+                        client_connection.ready_to_respond = true;
+                    } catch (const std::exception& e) {
+                        std::cerr << e.what() << std::endl;
+                        queue_error_response(epoll_instance, client_connection, 500);
                     }
-
-                    client_connection.ready_to_respond = true;
-                  } catch (const std::exception& e) {
-                      std::cerr << e.what() << std::endl;
-                      queue_error_response(epoll_instance, client_connection, 500);
-                  }
                 }
 
                 if (client_connection.ready_to_respond == true) {

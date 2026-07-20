@@ -1,16 +1,16 @@
 #include "../include/client_connection.hpp"
 #include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
+#include "../include/response/response_handlers.hpp"
 #include "../include/socket_utils.hpp"
 #include "../include/utils/main_functions_utils.hpp"
-#include "../include/response/response_handlers.hpp"
+#include "../include/utils/utils_config_file.hpp"
 #include <cerrno>
 #include <cstring>
 #include <ctime>
 #include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include "../include/utils/utils_config_file.hpp"
 
 void new_connections_func(int epoll_instance, epoll_event& event_settings, int this_fd,
                           std::map<int, ServerConfig*>& listen_fd_to_server_config_map,
@@ -111,27 +111,27 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         return;
     }
 
-	// create and save request structure
+    // create and save request structure
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
-    client_connection.input_buffer.erase(0, length);	
+    client_connection.input_buffer.erase(0, length);
     client_connection.request_data = request;
 
-	// find location to determine request type
+    // find location to determine request type
     LocationConfig* responseLocation =
         findRequestedLocation(*client_connection.ServerConfig_ptr, request);
 
-	// cgi request
+    // cgi request
     if (responseLocation && !responseLocation->cgi_extensions.empty()) {
-		// requested executable
+        // requested executable
         std::string this_concat = std::string(".") + getFileExtension(request.path);
         std::map<std::string, std::string>::iterator it =
             responseLocation->cgi_extensions.find(this_concat);
 
-		// file extension not configured on server
-		// we serve it as a normal request to EPOLLOUT
-		// leave it to the write handler to repond it
-		// where a NULL locaiton turns into a 404.
+        // file extension not configured on server
+        // we serve it as a normal request to EPOLLOUT
+        // leave it to the write handler to repond it
+        // where a NULL locaiton turns into a 404.
         if (it == responseLocation->cgi_extensions.end()) {
             epoll_event event_settings;
             event_settings.events = EPOLLOUT;
@@ -140,13 +140,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
             return;
         }
 
-		// binary executable does not use path
+        // binary executable does not use path
         client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
         if (it->second.empty()) {
             client_connection.cgi_instance.cgi_command.cgi_type = BINARY;
         }
 
-		// creating argv[0] for execve
+        // creating argv[0] for execve
         std::string this_bin_path_from_argv_cpp_str = std::string(this_bin_path_from_argv);
         std::string::size_type pos = this_bin_path_from_argv_cpp_str.rfind('/');
         if (pos == std::string::npos) {
@@ -160,9 +160,9 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         client_connection.cgi_instance.cgi_command.interpreted_language_path = it->second.c_str();
 
         std::string a_cpp_string = joinPath(this_bin_path_from_argv_cpp_str, request.path);
-		// todo: Julio: This part here might lose reference to the created c string on a second call
-		// a duplicate would be the best to keep it saved inside the struct
-		// or save the std::string and olny convert to c when needed for execution
+        // todo: Julio: This part here might lose reference to the created c string on a second call
+        // a duplicate would be the best to keep it saved inside the struct
+        // or save the std::string and olny convert to c when needed for execution
         client_connection.cgi_instance.cgi_command.path_to_program = a_cpp_string.c_str();
 
         client_connection.cgi_instance.cgi_command.args.push_back(
@@ -173,7 +173,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
         client_connection.cgi_instance.epoll_instance = epoll_instance;
 
-		// executing cgi
+        // executing cgi
         int cgi_fd = 0;
 
         try {
@@ -190,12 +190,12 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         client_connection.cgi_instance.timeout_seconds = responseLocation->cgi_timeout;
         cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
 
-		// return before setting it as ready to respond now, still needs child process
-		// to finish sending buffered data and return code. 
-		return ;
+        // return before setting it as ready to respond now, still needs child process
+        // to finish sending buffered data and return code.
+        return;
     }
 
-	// standard request setup for send
+    // standard request setup for send
     epoll_event event_settings;
     event_settings.events = EPOLLOUT;
     event_settings.data.fd = client_connection.client_fd;
