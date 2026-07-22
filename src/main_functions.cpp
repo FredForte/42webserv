@@ -13,24 +13,34 @@
 #include <sys/socket.h>
 
 void new_connections_func(int epoll_instance, epoll_event& event_settings, int this_fd,
-                          std::vector<ServerConfig>& server_config_vec,
-                          std::map<int, client_connection_struct>& client_map,
-                          std::map<int, ServerConfig*>& fd_to_ServerConfig_ptr_map) {
+                          std::map<int, int>& listening_fd_to_port,
+                          std::map<int, int>& client_fd_to_port) {
+
     sockaddr_storage their_addr;
     socklen_t addr_size = sizeof(their_addr);
 
-    int fd_to_add = accept(this_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
+    int new_client_fd = accept(this_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
 
-    if (fd_to_add == -1) {
+    if (new_client_fd == -1) {
         fail_and_exit_with_message(1, std::strerror(errno));
     }
 
-    make_fd_non_blocking(fd_to_add);
+    std::map<int, int>::iterator this_client_fd_origin_port = listening_fd_to_port.find(this_fd);
+
+    if (this_client_fd_origin_port == listening_fd_to_port.end()) {
+        fail_and_exit_with_message(
+            -1,
+            std::string("Why the hell this listening fd doesn't have a port associated to it?"));
+    }
+
+    client_fd_to_port.insert(std::make_pair(new_client_fd, this_client_fd_origin_port->second));
+
+    make_fd_non_blocking(new_client_fd);
 
     event_settings.events = EPOLLIN;
-    event_settings.data.fd = fd_to_add;
+    event_settings.data.fd = new_client_fd;
 
-    if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, fd_to_add, &event_settings) == -1) {
+    if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, new_client_fd, &event_settings) == -1) {
         fail_and_exit_with_message(
             -1, std::string("Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
                     + std::strerror(errno));
@@ -67,8 +77,9 @@ static void reject_with_413(int epoll_instance, client_connection_struct& client
 
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
                                int epoll_instance,
+                               std::multimap<int, ServerConfig*>& port_to_server_config_ptr_mmap,
                                std::map<int, client_connection_struct>& client_map,
-                               std::vector<ServerConfig>& server_config_vec,
+                               std::map<int, int>& client_fd_to_port,
                                std::map<int, int>& cgi_fd_map, char* this_bin_path_from_argv) {
 
     memset(our_buffer, 0, BUFFER_SIZE);
@@ -118,11 +129,21 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         std::stringstream ss;
         ss << a_client_connection.client_fd;
         a_client_connection.cookie_id = ss.str();
+
+        std::pair<std::map<int, client_connection_struct>::iterator, bool> result_pair =
+            client_map.insert(std::make_pair(this_fd, a_client_connection));
+
+        if (result_pair.second == false) {
+            fail_and_exit_with_message(-1, "Why inserting a client to a map failed?");
+        }
+
+        client_connection_ptr = &result_pair.first->second;
     }
 
     if (client_connection_ptr == NULL) {
-        client_connection_struct& client_connection = it->second;
+        client_connection_ptr = &it->second;
     }
+
     client_connection_struct& client_connection = *client_connection_ptr;
 
     std::cout.write(our_buffer, bytes_read);
@@ -147,20 +168,9 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
 
-    ServerConfig* server_config_ptr =
-        get_server_config_instance_based_on_port_and_hostname(server_config_vec, this_fd, http_request);
-
-    if (server_config_ptr == NULL) {
-        queue_error_response(epoll_instance, client_connection, 400);
-        client_connection.close_after_response = true;
-        return;
-    }
-
-    a_client_connection.ServerConfig_ptr = server_config_ptr; // isso mova de lugar
-    client_map.insert(std::make_pair(this_fd, a_client_connection));
-    fd_to_ServerConfig_ptr_map.insert(std::make_pair(this_fd, server_config_ptr));
-
-
+    client_connection.ServerConfig_ptr
+        == get_server_config_instance_based_on_port_and_hostname(
+            this_fd, request, client_fd_to_port, port_to_server_config_ptr_mmap);
 
     client_connection.input_buffer.erase(0, length);
     client_connection.request_data = request;

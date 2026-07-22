@@ -75,6 +75,25 @@
 // todo: Both: Readme.
 int main(int argc, char** argv) {
 
+    std::multimap<int, char> dict;
+
+    dict.insert(std::make_pair(2, 'B'));
+    dict.insert(std::make_pair(2, 'C'));
+    dict.insert(std::make_pair(2, 'D'));
+    dict.insert(std::make_pair(4, 'E'));
+    dict.insert(std::make_pair(3, 'F'));
+
+    std::pair<std::multimap<int, char>::iterator, std::multimap<int, char>::iterator> range =
+        dict.equal_range(2);
+
+    std::multimap<int, char>::iterator i;
+
+    for (i = range.first; i != range.second; ++i) {
+        std::cout << i->first << ": " << i->second << '\n';
+    }
+
+    return 0;
+
     const char* configuration_file_path = "./config/example.conf";
 
     if (argc >= 2) {
@@ -95,33 +114,9 @@ int main(int argc, char** argv) {
     // pass 0, it won't close.
     int epoll_instance = epoll_create1(EPOLL_CLOEXEC);
 
-    // // std::map<listen_fd, ServerConfig*>
-    // std::map<int, ServerConfig*> listen_fd_to_server_config_map;
-
-    // Vai criar um socket. Caso já exista, significa que precisa ser atrelado a outra
-    // server_config. Talvez a server config que ainda não tenha atrelação. Só não pode ser a que já
-    // existe. Pega o nome então!!! Mas se tem nome, ent
-
-    // Para o Fred:
-    // Temos um único socket para múltiplos servidores. Certo? É isso. A depender do host_name,
-    // precisamos responder com o server correto.
-    //
-    // Quando temos uma nova conexão, ela bate no loop principal e sabemos que existe um socket
-    // aberto naquela porta. Afinal, é um socket um para muitos (um socket). Ele recepciona, NÃO LÊ
-    // A REQUISIÇÃO (a função dele não é essa), mas cria um novo fd para lidar com a conexão dele.
-    //
-    // Atualmente, esse fd recém-recebido é automaticamente atrelado à um server config. E isso é
-    // fácil, pois existe uma atrelamento inicial (no começo dessa main) de sockets fd para server
-    // config. Essa premissa inicial feita lá atrás é errada, pois é possível ter um socket fd que
-    // aponta para dois ou mais server configs. Então, na hora de aceitar e criar um novo mapeamento
-    // entre fd's, esse atrelamento precisa ser mais refinado e checar pelo header de host name. Na
-    // prática, é melhor não ter um map de socket fd para config, e só checar via std::set se aquele
-    // socket já foi utilizado ou não. Se foi, só pula ele na hora da criação do socket.
-    //03:5903:59
-    // Já na hora de uso, utilize uma helper funtcion para achar o seu server_config correto.
-
-    std::set<int> ports_created;
-    std::set<int> listen_fds_created;
+    std::map<int, int> listening_fd_to_port;
+    std::map<int, int> client_fd_to_port;
+    std::multimap<int, ServerConfig*> port_to_server_config_ptr_mmap;
 
     size_t server_config_vec_size = server_config_vec.size();
     for (size_t i = 0; i < server_config_vec_size; i++) {
@@ -129,31 +124,36 @@ int main(int argc, char** argv) {
         size_t listens_size = server_config_vec[i].listens.size();
         for (size_t j = 0; j < listens_size; j++) {
 
-            if (ports_created.count(server_config_vec[i].listens[j].port)) {
-                continue;
+            if (port_to_server_config_ptr_mmap.count(server_config_vec[i].listens[j].port) == 0) {
+
+                std::stringstream ss_port_value;
+                ss_port_value << server_config_vec[i].listens[j].port;
+
+                int listen_fd_instance =
+                    return_a_fully_prepared_socket(ss_port_value.str().c_str());
+
+                if (listen(listen_fd_instance, 64) == -1) {
+                    fail_and_exit_with_message(1, std::strerror(errno));
+                }
+
+                event_settings.events = EPOLLIN; // me avisa quando tiver dado pra ler
+                event_settings.data.fd =
+                    listen_fd_instance; // quando o evento voltar, quero saber qual fd é
+
+                if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd_instance, &event_settings)
+                    == -1) {
+                    fail_and_exit_with_message(1, std::string("Failed to add listening socket: ")
+                                                      + std::strerror(errno));
+                }
+
+                listening_fd_to_port.insert(
+                    std::make_pair(listen_fd_instance, server_config_vec[i].listens[j].port));
+                port_to_server_config_ptr_mmap.insert(
+                    std::make_pair(server_config_vec[i].listens[j].port, &server_config_vec[i]));
             }
 
-            std::stringstream ss_port_value;
-            ss_port_value << server_config_vec[i].listens[j].port;
-
-            int listen_fd_instance = return_a_fully_prepared_socket(ss_port_value.str().c_str());
-
-            if (listen(listen_fd_instance, 64) == -1) {
-                fail_and_exit_with_message(1, std::strerror(errno));
-            }
-
-            event_settings.events = EPOLLIN; // me avisa quando tiver dado pra ler
-            event_settings.data.fd =
-                listen_fd_instance; // quando o evento voltar, quero saber qual fd é
-
-            if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, listen_fd_instance, &event_settings)
-                == -1) {
-                fail_and_exit_with_message(1, std::string("Failed to add listening socket: ")
-                                                  + std::strerror(errno));
-            }
-
-            ports_created.insert(server_config_vec[i].listens[j].port);
-            listen_fds_created.insert(listen_fd_instance);
+            port_to_server_config_ptr_mmap.insert(
+                std::make_pair(server_config_vec[i].listens[j].port, &server_config_vec[i]));
         }
     }
 
@@ -166,8 +166,8 @@ int main(int argc, char** argv) {
     std::map<int, client_connection_struct> client_map;
     // std::map<cgi_fd, client_fd> cgi_fd_map;
     std::map<int, int> cgi_fd_map;
-    // std::map<client_fd, ServerConfig> fd_to_ServerConfig_ptr_map;
-    std::map<int, ServerConfig*> fd_to_ServerConfig_ptr_map;
+    // std::map<client_fd, ServerConfig> client_fd_to_ServerConfig_ptr;
+    // std::map<int, ServerConfig*> client_fd_to_ServerConfig_ptr;
 
     while (true) {
         // when server is idle, poll everysecond while we have a cgi running
@@ -181,20 +181,21 @@ int main(int argc, char** argv) {
             int this_fd = event_poll[i].data.fd;
 
             // new connections case
-            if (is_this_a_listen_fd(listen_fds_created, this_fd)) {
+            if (is_this_a_listen_fd(listening_fd_to_port, this_fd)) {
 
-                new_connections_func(epoll_instance, event_settings, this_fd, server_config_vec,
-                                     client_map, fd_to_ServerConfig_ptr_map);
+                new_connections_func(epoll_instance, event_settings, this_fd, listening_fd_to_port,
+                                     client_fd_to_port);
                 continue;
             }
 
             // standard connections case. Only client connections are accepted
             if (event_poll[i].events & EPOLLIN
-                && is_this_a_listen_fd(listen_fds_created, this_fd) == false
-                && is_this_a_cgi_fd(cgi_fd_map, this_fd) == false) {
+                && !is_this_a_listen_fd(listening_fd_to_port, this_fd)
+                && !is_this_a_cgi_fd(cgi_fd_map, this_fd)) {
 
                 standard_connections_func(this_fd, BUFFER_SIZE, our_buffer, epoll_instance,
-                                          client_map, cgi_fd_map, argv[0]);
+                                          port_to_server_config_ptr_mmap, client_map, cgi_fd_map,
+                                          argv[0]);
                 continue;
             }
 

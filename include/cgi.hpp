@@ -32,17 +32,17 @@ struct cgi_command_struct {
 struct cgi_instance_struct {
     int client_fd;
     int cgi_fd;
-    pid_t cgi_pid;				// fork()'s child pid, kept so the event loop can waitpid(WNOHANG) it
-    time_t start_time;			// when the child was launched
-    size_t timeout_seconds;		// max run time (from the location's cgi_timeout), 0 = no limit
+    pid_t cgi_pid;          // fork()'s child pid, kept so the event loop can waitpid(WNOHANG) it
+    time_t start_time;      // when the child was launched
+    size_t timeout_seconds; // max run time (from the location's cgi_timeout), 0 = no limit
     cgi_command_struct cgi_command;
     std::string cgi_response;
     int cgi_exit_code;
     int epoll_instance;
 
     cgi_instance_struct()
-        : client_fd(0), cgi_fd(0), cgi_pid(-1), start_time(0), timeout_seconds(0),
-          cgi_exit_code(0), epoll_instance(0){};
+        : client_fd(0), cgi_fd(0), cgi_pid(-1), start_time(0), timeout_seconds(0), cgi_exit_code(0),
+          epoll_instance(0) {};
 };
 
 int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_body);
