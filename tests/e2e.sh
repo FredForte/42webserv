@@ -138,6 +138,21 @@ assert_status "GET /missing -> 404" 404 "http://$HOST:8080/missing"
 assert_status "DELETE / (GET-only) -> 405" 405 -X DELETE "http://$HOST:8080/"
 assert_status "GET /old -> 301 redirect" 301 "http://$HOST:8080/old"
 
+echo "== virtual hosts (same port 8080, routed by Host header) =="
+# example.com and vhost2.local both listen on 8080; the Host header decides.
+assert_status "Host example.com -> default vhost 200" 200 -H "Host: example.com" "http://$HOST:8080/"
+assert_status "Host vhost2.local -> second vhost 301" 301 -H "Host: vhost2.local" "http://$HOST:8080/"
+assert_body   "vhost2.local served its own config" "routed-to-vhost2" -H "Host: vhost2.local" "http://$HOST:8080/"
+assert_status "Host with :port suffix still routes" 301 -H "Host: vhost2.local:8080" "http://$HOST:8080/"
+assert_status "unknown Host -> falls back to default" 200 -H "Host: nope.invalid" "http://$HOST:8080/"
+# Per-vhost body limit: example.com allows 1000000, vhost2.local only 1000. A
+# ~2000-byte POST must be judged by the *resolved* vhost's limit, not the port
+# default (this is the regression the max_body recompute fixes).
+VHOST_BODY="$(python3 -c "print('z' * 2000, end='')")"
+assert_status "body limit follows Host: vhost2.local -> 413" 413 -H "Host: vhost2.local" -X POST --data-binary "$VHOST_BODY" "http://$HOST:8080/"
+assert_status "same body under default's limit -> not 413" 201 -H "Host: example.com" -X POST --data-binary "$VHOST_BODY" "http://$HOST:8080/upload/vhtest.txt"
+curl -s -X DELETE -H "Host: example.com" "http://$HOST:8080/upload/vhtest.txt" >/dev/null 2>&1
+
 echo "== upload lifecycle =="
 assert_status "POST upload -> 201" 201 -X POST --data-binary "regression payload" "http://$HOST:8080/upload/regtest.txt"
 assert_status "GET uploaded file -> 200" 200 "http://$HOST:8080/upload/regtest.txt"

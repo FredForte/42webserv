@@ -45,14 +45,8 @@ ServerConfig* get_server_config_instance_based_on_port_and_hostname(
     int this_fd, HttpRequest& http_request, std::map<int, int>& client_fd_to_port,
     std::multimap<int, ServerConfig*>& port_to_server_config_ptr_mmap) {
 
-    std::map<std::string, std::string>::iterator it = http_request.headers.find("HOST");
-
-    if (it == http_request.headers.end()) {
-        return NULL;
-    }
-
-    std::string& host_name = it->second;
-
+    // The port the client connected on is the other half of the virtual-host
+    // key; it was recorded against the client fd when we accepted it.
     std::map<int, int>::iterator client_fd_port_it = client_fd_to_port.find(this_fd);
 
     if (client_fd_port_it == client_fd_to_port.end()) {
@@ -69,16 +63,33 @@ ServerConfig* get_server_config_instance_based_on_port_and_hostname(
                                    "Why this port is not associated to a ServerConfig pointer?");
     }
 
-    std::multimap<int, ServerConfig*>::iterator i = port_to_server_it.first;
+    // default server for this port if none found (nginx similar)
+    ServerConfig* default_server = port_to_server_it.first->second;
 
-    for (; i != port_to_server_config_ptr_mmap.end(); i++) {
+    std::map<std::string, std::string>::iterator it = http_request.headers.find("host");
+
+    if (it == http_request.headers.end()) {
+        return default_server;
+    }
+
+    // the Host header is "name" or "name:port"; match on the name alone.
+    std::string host_name = it->second;
+    std::string::size_type colon = host_name.find(':');
+    if (colon != std::string::npos) {
+        host_name = host_name.substr(0, colon);
+    }
+
+    // only look at the servers bound to this port (stop at the range end, not
+    // the map end, or we'd match a server_name from a different port).
+    for (std::multimap<int, ServerConfig*>::iterator i = port_to_server_it.first;
+         i != port_to_server_it.second; ++i) {
 
         if (i->second->server_name == host_name) {
             return i->second;
         }
     }
 
-    return NULL;
+    return default_server;
 }
 // collect the timedout cgi processess
 // then kill and readp them using SIGKILL.

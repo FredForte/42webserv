@@ -130,6 +130,17 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         ss << a_client_connection.client_fd;
         a_client_connection.cookie_id = ss.str();
 
+		// pre cache the client_max_body_size from this port's default server
+		// will re-resolve further down the line when a full request is present.
+        std::map<int, int>::iterator port_it = client_fd_to_port.find(this_fd);
+        if (port_it != client_fd_to_port.end()) {
+            std::multimap<int, ServerConfig*>::iterator srv_it =
+                port_to_server_config_ptr_mmap.find(port_it->second);
+            if (srv_it != port_to_server_config_ptr_mmap.end()) {
+                a_client_connection.ServerConfig_ptr = srv_it->second;
+            }
+        }
+
         std::pair<std::map<int, client_connection_struct>::iterator, bool> result_pair =
             client_map.insert(std::make_pair(this_fd, a_client_connection));
 
@@ -151,6 +162,9 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     HttpRequestParser req_parser;
 
+	// use the host of the first found instance of port in order to use this
+	// max body size at this stage. 
+	// reassigned to the resolved value when full request is parsed.
     size_t max_body = client_connection.ServerConfig_ptr->client_max_body_size;
 
     size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
@@ -168,9 +182,14 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
 
-    client_connection.ServerConfig_ptr
-        == get_server_config_instance_based_on_port_and_hostname(
-            this_fd, request, client_fd_to_port, port_to_server_config_ptr_mmap);
+	// with the request parsed, we resolve which server block on this port should serve it
+	// does not return null, it falls back to the default server port
+    client_connection.ServerConfig_ptr = get_server_config_instance_based_on_port_and_hostname(
+        this_fd, request, client_fd_to_port, port_to_server_config_ptr_mmap);
+
+	// now with the full request values, we can reassign the final
+	// max body size for this server config.
+    max_body = client_connection.ServerConfig_ptr->client_max_body_size;
 
     client_connection.input_buffer.erase(0, length);
     client_connection.request_data = request;

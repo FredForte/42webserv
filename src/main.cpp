@@ -75,25 +75,6 @@
 // todo: Both: Readme.
 int main(int argc, char** argv) {
 
-    std::multimap<int, char> dict;
-
-    dict.insert(std::make_pair(2, 'B'));
-    dict.insert(std::make_pair(2, 'C'));
-    dict.insert(std::make_pair(2, 'D'));
-    dict.insert(std::make_pair(4, 'E'));
-    dict.insert(std::make_pair(3, 'F'));
-
-    std::pair<std::multimap<int, char>::iterator, std::multimap<int, char>::iterator> range =
-        dict.equal_range(2);
-
-    std::multimap<int, char>::iterator i;
-
-    for (i = range.first; i != range.second; ++i) {
-        std::cout << i->first << ": " << i->second << '\n';
-    }
-
-    return 0;
-
     const char* configuration_file_path = "./config/example.conf";
 
     if (argc >= 2) {
@@ -148,10 +129,11 @@ int main(int argc, char** argv) {
 
                 listening_fd_to_port.insert(
                     std::make_pair(listen_fd_instance, server_config_vec[i].listens[j].port));
-                port_to_server_config_ptr_mmap.insert(
-                    std::make_pair(server_config_vec[i].listens[j].port, &server_config_vec[i]));
             }
 
+            // every server that listens on this port is registered once.
+            // the listening socket above is created only the first time we see it.
+            // the first server registered for a port is that port's default.
             port_to_server_config_ptr_mmap.insert(
                 std::make_pair(server_config_vec[i].listens[j].port, &server_config_vec[i]));
         }
@@ -194,8 +176,8 @@ int main(int argc, char** argv) {
                 && !is_this_a_cgi_fd(cgi_fd_map, this_fd)) {
 
                 standard_connections_func(this_fd, BUFFER_SIZE, our_buffer, epoll_instance,
-                                          port_to_server_config_ptr_mmap, client_map, cgi_fd_map,
-                                          argv[0]);
+                                          port_to_server_config_ptr_mmap, client_map,
+                                          client_fd_to_port, cgi_fd_map, argv[0]);
                 continue;
             }
 
