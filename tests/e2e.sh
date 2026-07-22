@@ -44,8 +44,8 @@ BODY_FILE="$(mktemp)"
 
 PASS=0
 FAIL=0
-pass() { printf '  \033[32mPASS\033[0m %s\n' "$1"; PASS=$((PASS + 1)); }
-fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
+pass() { printf '  \033[32m[PASS]\033[0m %s\n' "$1"; PASS=$((PASS + 1)); }
+fail() { printf '  \033[31m[FAIL]\033[0m %s\n' "$1"; FAIL=$((FAIL + 1)); }
 
 # With -v, dump the request, status, and (indented) response body for a check.
 # BODY_FILE holds the last response body; $1 is its status, $2.. the curl args.
@@ -53,12 +53,16 @@ verbose_dump() {
 	[ "$VERBOSE" -eq 1 ] || return 0
 	local code="$1"
 	shift
-	printf '       request: %s\n' "$*"
-	printf '       status : %s\n' "$code"
+	printf '       \033[36m[REQUEST]\033[0m %s\n' "$*"
+	printf '       \033[36m[STATUS]\033[0m  %s\n' "$code"
 	if [ -s "$BODY_FILE" ]; then
-		printf '       body   :\n'
+		printf '       \033[36m[BODY]\033[0m\n'
 		sed 's/^/         | /' "$BODY_FILE"
+		# BODY_FILE may not end in a newline; make sure the blank-line
+		# separator below always lands on its own line.
+		[ -z "$(tail -c1 "$BODY_FILE")" ] || echo
 	fi
+	echo
 }
 
 # assert_status "desc" EXPECTED_CODE curl-args...
