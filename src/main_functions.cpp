@@ -1,61 +1,72 @@
 #include "../include/client_connection.hpp"
 #include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
+#include "../include/response/response_handlers.hpp"
 #include "../include/socket_utils.hpp"
 #include "../include/utils/main_functions_utils.hpp"
-#include "../include/response/response_handlers.hpp"
+#include "../include/utils/utils_config_file.hpp"
 #include <cerrno>
 #include <cstring>
 #include <ctime>
 #include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
-#include "../include/utils/utils_config_file.hpp"
 
 void new_connections_func(int epoll_instance, epoll_event& event_settings, int this_fd,
-                          std::map<int, ServerConfig*>& listen_fd_to_server_config_map,
-                          std::map<int, client_connection_struct>& client_map,
-                          std::map<int, ServerConfig*>& fd_to_ServerConfig_ptr_map) {
+                          std::map<int, int>& listening_fd_to_port,
+                          std::map<int, int>& client_fd_to_port) {
+
     sockaddr_storage their_addr;
     socklen_t addr_size = sizeof(their_addr);
 
-    int fd_to_add = accept(this_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
+    int new_client_fd = accept(this_fd, reinterpret_cast<sockaddr*>(&their_addr), &addr_size);
 
-    if (fd_to_add == -1) {
+    if (new_client_fd == -1) {
         fail_and_exit_with_message(1, std::strerror(errno));
     }
 
-    make_fd_non_blocking(fd_to_add);
+    std::map<int, int>::iterator this_client_fd_origin_port = listening_fd_to_port.find(this_fd);
+
+    if (this_client_fd_origin_port == listening_fd_to_port.end()) {
+        fail_and_exit_with_message(
+            -1,
+            std::string("Why the hell this listening fd doesn't have a port associated to it?"));
+    }
+
+    client_fd_to_port.insert(std::make_pair(new_client_fd, this_client_fd_origin_port->second));
+
+    make_fd_non_blocking(new_client_fd);
 
     event_settings.events = EPOLLIN;
-    event_settings.data.fd = fd_to_add;
+    event_settings.data.fd = new_client_fd;
 
-    if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, fd_to_add, &event_settings) == -1) {
+    if (epoll_ctl(epoll_instance, EPOLL_CTL_ADD, new_client_fd, &event_settings) == -1) {
         fail_and_exit_with_message(
             -1, std::string("Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
                     + std::strerror(errno));
     }
 
-    ServerConfig* server_config_ptr =
-        get_server_config_instance_based_on_listen_fd(listen_fd_to_server_config_map, this_fd);
+    // isso mova de lugar
+    // ServerConfig* server_config_ptr =
+    //     get_server_config_instance_based_on_port_and_hostname(server_config_vec, this_fd);
 
-    client_connection_struct client_connection;
-    client_connection.client_fd = fd_to_add;
-    client_connection.ready_to_respond = false;
-    client_connection.close_after_response = false;
-    client_connection.client_connection_type = STANDARD;
-    client_connection.cgi_instance.client_fd = fd_to_add;
-    client_connection.cgi_instance.cgi_fd = 0;
-    client_connection.cgi_instance.epoll_instance = epoll_instance;
+    // client_connection_struct client_connection;
+    // client_connection.client_fd = fd_to_add;
+    // client_connection.ready_to_respond = false;
+    // client_connection.close_after_response = false;
+    // client_connection.client_connection_type = STANDARD;
+    // client_connection.cgi_instance.client_fd = fd_to_add;
+    // client_connection.cgi_instance.cgi_fd = 0;
+    // client_connection.cgi_instance.epoll_instance = epoll_instance;
 
-    std::stringstream ss;
-    ss << client_connection.client_fd;
-    client_connection.cookie_id = ss.str();
-    client_connection.ServerConfig_ptr = server_config_ptr;
+    // std::stringstream ss;
+    // ss << client_connection.client_fd;
+    // client_connection.cookie_id = ss.str();
+    // client_connection.ServerConfig_ptr = server_config_ptr; // isso mova de lugar
 
-    client_map.insert(std::make_pair(fd_to_add, client_connection));
+    // client_map.insert(std::make_pair(fd_to_add, client_connection));
 
-    fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
+    // fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
 }
 
 // 413 Payload Too Large, mark the connection to close once it's sent.
@@ -66,7 +77,9 @@ static void reject_with_413(int epoll_instance, client_connection_struct& client
 
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
                                int epoll_instance,
+                               std::multimap<int, ServerConfig*>& port_to_server_config_ptr_mmap,
                                std::map<int, client_connection_struct>& client_map,
+                               std::map<int, int>& client_fd_to_port,
                                std::map<int, int>& cgi_fd_map, char* this_bin_path_from_argv) {
 
     memset(our_buffer, 0, BUFFER_SIZE);
@@ -101,12 +114,37 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
 
+    client_connection_struct a_client_connection;
+    client_connection_struct* client_connection_ptr = NULL;
+
     if (it == client_map.end()) {
-        fail_and_exit_with_message(1, std::string("Why this client fd doesn't have a instance?")
-                                          + std::strerror(errno));
+        a_client_connection.client_fd = this_fd;
+        a_client_connection.ready_to_respond = false;
+        a_client_connection.close_after_response = false;
+        a_client_connection.client_connection_type = STANDARD;
+        a_client_connection.cgi_instance.client_fd = this_fd;
+        a_client_connection.cgi_instance.cgi_fd = 0;
+        a_client_connection.cgi_instance.epoll_instance = epoll_instance;
+
+        std::stringstream ss;
+        ss << a_client_connection.client_fd;
+        a_client_connection.cookie_id = ss.str();
+
+        std::pair<std::map<int, client_connection_struct>::iterator, bool> result_pair =
+            client_map.insert(std::make_pair(this_fd, a_client_connection));
+
+        if (result_pair.second == false) {
+            fail_and_exit_with_message(-1, "Why inserting a client to a map failed?");
+        }
+
+        client_connection_ptr = &result_pair.first->second;
     }
 
-    client_connection_struct& client_connection = it->second;
+    if (client_connection_ptr == NULL) {
+        client_connection_ptr = &it->second;
+    }
+
+    client_connection_struct& client_connection = *client_connection_ptr;
 
     std::cout.write(our_buffer, bytes_read);
     client_connection.input_buffer.append(our_buffer, bytes_read);
@@ -117,8 +155,8 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
     if (length == std::string::npos) {
-		// check the receivd body size, preventing it from exceeding whats set on
-		// conf file, also adds a header size allowance with a macro.
+        // check the receivd body size, preventing it from exceeding whats set on
+        // conf file, also adds a header size allowance with a macro.
         const size_t HEADER_ALLOWANCE = 16384;
         if (max_body > 0 && client_connection.input_buffer.size() > max_body + HEADER_ALLOWANCE) {
             reject_with_413(epoll_instance, client_connection);
@@ -126,14 +164,19 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         return;
     }
 
-	// create and save request structure
+    // create and save request structure
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
+
+    client_connection.ServerConfig_ptr
+        == get_server_config_instance_based_on_port_and_hostname(
+            this_fd, request, client_fd_to_port, port_to_server_config_ptr_mmap);
+
     client_connection.input_buffer.erase(0, length);
     client_connection.request_data = request;
 
-	// get connection type from parsed request, defaults by the HTTP version standards
-	// if not defined on the request
+    // get connection type from parsed request, defaults by the HTTP version standards
+    // if not defined on the request
     client_connection.close_after_response = isCloseConnection(determineConnection(request));
 
     // Exact body-size enforcement now that the full request is decoded.
@@ -142,21 +185,22 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         return;
     }
 
-	// find location to determine request type
+    // find location to determine request type
     LocationConfig* responseLocation =
         findRequestedLocation(*client_connection.ServerConfig_ptr, request);
 
-	// cgi request
+    // cgi request
     if (responseLocation && !responseLocation->cgi_extensions.empty()) {
-		// requested executable
+
+        // requested executable
         std::string this_concat = std::string(".") + getFileExtension(request.path);
         std::map<std::string, std::string>::iterator it =
             responseLocation->cgi_extensions.find(this_concat);
 
-		// file extension not configured on server
-		// we serve it as a normal request to EPOLLOUT
-		// leave it to the write handler to repond it
-		// where a NULL locaiton turns into a 404.
+        // file extension not configured on server
+        // we serve it as a normal request to EPOLLOUT
+        // leave it to the write handler to repond it
+        // where a NULL locaiton turns into a 404.
         if (it == responseLocation->cgi_extensions.end()) {
             epoll_event event_settings;
             event_settings.events = EPOLLOUT;
@@ -165,13 +209,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
             return;
         }
 
-		// binary executable does not use path
+        // binary executable does not use path
         client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
         if (it->second.empty()) {
             client_connection.cgi_instance.cgi_command.cgi_type = BINARY;
         }
 
-		// creating argv[0] for execve
+        // creating argv[0] for execve
         std::string this_bin_path_from_argv_cpp_str = std::string(this_bin_path_from_argv);
         std::string::size_type pos = this_bin_path_from_argv_cpp_str.rfind('/');
         if (pos == std::string::npos) {
@@ -194,7 +238,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
         client_connection.cgi_instance.epoll_instance = epoll_instance;
 
-		// executing cgi
+        // executing cgi
         int cgi_fd = 0;
 
         try {
@@ -211,12 +255,12 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         client_connection.cgi_instance.timeout_seconds = responseLocation->cgi_timeout;
         cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
 
-		// return before setting it as ready to respond now, still needs child process
-		// to finish sending buffered data and return code. 
-		return ;
+        // return before setting it as ready to respond now, still needs child process
+        // to finish sending buffered data and return code.
+        return;
     }
 
-	// standard request setup for send
+    // standard request setup for send
     epoll_event event_settings;
     event_settings.events = EPOLLOUT;
     event_settings.data.fd = client_connection.client_fd;

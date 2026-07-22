@@ -1,4 +1,6 @@
 #include "../include/cgi.hpp"
+#include "../include/parser/ConfigTypes.hpp"
+#include "../include/parser/HttpRequest.hpp"
 #include "../include/program_flow_utils.hpp"
 #include "../include/socket_utils.hpp"
 #include <cerrno>
@@ -11,12 +13,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <sys/epoll.h>
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
-#include "../include/parser/ConfigTypes.hpp"
-#include "../include/parser/HttpRequest.hpp"
 
 // Can throw exception
 int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_body) {
@@ -24,54 +24,28 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
     cgi_command_struct& cgi_command = cgi_instance.cgi_command;
 
     switch (cgi_command.cgi_type) {
-        case INTERPRETED_LANGUAGE:
-            if (cgi_command.interpreted_language_path == NULL || cgi_command.path_to_program.empty())
+        case BINARY:
+            if (cgi_command.path_to_program.empty()) {
                 throw MalformedCGIStruct();
+            }
             break;
 
-        case BINARY:
-            if (cgi_command.path_to_program.empty())
+        case INTERPRETED_LANGUAGE:
+            if (cgi_command.interpreted_language_path == NULL
+                || cgi_command.path_to_program.empty()) {
                 throw MalformedCGIStruct();
+            }
             break;
 
         default:
             throw MalformedCGIStruct();
     }
 
-	// request.body is the complete body, we need to make it into a file so the 
-	// stdin can receive it and read it fully, because a pipe kernel buffer is 64KB max by default.
+    // request.body is the complete body, we need to make it into a file so the
+    // stdin can receive it and read it fully, because a pipe kernel buffer is 64KB max by default.
     int stdin_fd = -1;
-    if (!request_body.empty()) {
-        // create a file name with internal counter.
-        // O_EXCL makes open fail if the name already exists, 
-		// retry with the next number on collision.
-        static unsigned long counter = 0;
-        std::string path;
-        for (int tries = 0; tries < 100 && stdin_fd == -1; ++tries) {
-            std::stringstream ss;
-            ss << "/tmp/webserv_cgi_stdin_" << counter++;
-            path = ss.str();
-            stdin_fd = open(path.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
-        }
-        if (stdin_fd == -1) {
-            throw std::runtime_error(std::string("Failed to create CGI stdin temp file: ")
-                                     + std::strerror(errno));
-        }
-        unlink(path.c_str()); // the open fd keeps it alive; removed once all fds close
 
-        size_t written = 0;
-        while (written < request_body.size()) {
-            ssize_t w =
-                write(stdin_fd, request_body.data() + written, request_body.size() - written);
-            if (w == -1) {
-                close(stdin_fd);
-                throw std::runtime_error(std::string("Failed to write CGI stdin temp file: ")
-                                         + std::strerror(errno));
-            }
-            written += static_cast<size_t>(w);
-        }
-        lseek(stdin_fd, 0, SEEK_SET);
-    } else {
+    if (request_body.empty()) {
         stdin_fd = open("/dev/null", O_RDONLY);
         if (stdin_fd == -1) {
             throw std::runtime_error(std::string("Failed to open /dev/null for CGI stdin: ")
@@ -79,15 +53,47 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         }
     }
 
+    // create a file name with internal counter.
+    // O_EXCL makes open fail if the name already exists,
+    // retry with the next number on collision.
+    static unsigned long counter = 0;
+    std::string path;
+    for (int tries = 0; tries < 100 && stdin_fd == -1; ++tries) {
+        std::stringstream ss;
+        ss << "/tmp/webserv_cgi_stdin_" << counter++;
+        path = ss.str();
+        stdin_fd = open(path.c_str(), O_CREAT | O_EXCL | O_RDWR, 0600);
+    }
+
+    if (stdin_fd == -1) {
+        throw std::runtime_error(std::string("Failed to create CGI stdin temp file: ")
+                                 + std::strerror(errno));
+    }
+    unlink(path.c_str()); // the open fd keeps it alive; removed once all fds close
+
+    ssize_t total_written = 0;
+    while (static_cast<size_t>(total_written) < request_body.size()) {
+        ssize_t written_on_loop = write(stdin_fd, request_body.data() + total_written,
+                                        request_body.size() - total_written);
+
+        if (written_on_loop == -1) {
+            close(stdin_fd);
+            throw std::runtime_error(std::string("Failed to write CGI stdin temp file: ")
+                                     + std::strerror(errno));
+        }
+
+        total_written += written_on_loop;
+    }
+
+    lseek(stdin_fd, 0, SEEK_SET);
+
     int file_descriptors[2];
     if (pipe(file_descriptors) == -1) {
         close(stdin_fd);
-        throw std::runtime_error(std::string("Failed to create CGI pipe: ")
-                                 + std::strerror(errno));
+        throw std::runtime_error(std::string("Failed to create CGI pipe: ") + std::strerror(errno));
     }
 
     int process_id = fork();
-
     if (process_id == -1) {
         close(stdin_fd);
         close(file_descriptors[0]);
@@ -97,17 +103,17 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
 
     if (process_id == 0) {
 
-        // wire the child's stdin from the staged file and stdout to the pipe, 
-		// then drop the now-duplicated fds before exec.
+        // wire the child's stdin from the staged file and stdout to the pipe,
+        // then drop the now-duplicated fds before exec.
         dup2(stdin_fd, STDIN_FILENO);
         dup2(file_descriptors[1], STDOUT_FILENO);
         close(stdin_fd);
         close(file_descriptors[0]);
         close(file_descriptors[1]);
 
-		// run the cgi program from its own directory, so it can open/access files by 
-		// relative path. chdir into the scripts dir, if valid,
-		// reference it by basename so execv uses it as cwd.
+        // run the cgi program from its own directory, so it can open/access files by
+        // relative path. chdir into the scripts dir, if valid,
+        // reference it by basename so execv uses it as cwd.
         std::string script_ref = cgi_command.path_to_program;
         std::string::size_type slash = cgi_command.path_to_program.rfind('/');
         if (slash != std::string::npos) {
@@ -143,10 +149,10 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         }
         envp_vector.push_back(NULL);
 
-		// cant throw on execve, it would become another webserv instance
-		// _exit(1) to get rid of all data and prevent unwanted bytes from
-		// being written to buffer, also prevent double executions that
-		// can be cause by std::exit()
+        // cant throw on execve, it would become another webserv instance
+        // _exit(1) to get rid of all data and prevent unwanted bytes from
+        // being written to buffer, also prevent double executions that
+        // can be cause by std::exit()
         if (execve(exec_path, const_cast<char* const*>(&argv_vector[0]),
                    const_cast<char* const*>(&envp_vector[0]))
             == -1) {
@@ -181,29 +187,3 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
 
     return cgi_instance.cgi_fd;
 }
-
-// old code:
-
-// close(file_descriptors[1]);
-
-// std::string cgi_output;
-// char read_buffer[4096];
-// ssize_t bytes_read;
-
-// while ((bytes_read = read(file_descriptors[0], read_buffer, sizeof(read_buffer))) > 0) {
-//     cgi_output.append(read_buffer, bytes_read);
-// }
-
-// close(file_descriptors[0]);
-
-// int status;
-// int exit_code;
-
-// waitpid(process_id, &status, 0);
-// if (WIFEXITED(status)) {
-//     int exit_code = WEXITSTATUS(status);
-// }
-
-// cgi_command.cgi_type
-
-// return 0;

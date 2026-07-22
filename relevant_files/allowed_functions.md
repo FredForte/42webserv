@@ -67,4 +67,4 @@
 # Errors
     strerror        - returns a string describing an errno error code
     gai_strerror    - returns a string describing a getaddrinfo error code
-    errno           - global variable set by syscalls/library functions on failure
+               - global variable set by syscalls/library functions on failure
