@@ -11,6 +11,7 @@
 #include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 void new_connections_func(int epoll_instance, epoll_event& event_settings, int this_fd,
                           std::map<int, int>& listening_fd_to_port,
@@ -33,7 +34,9 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
             std::string("Why the hell this listening fd doesn't have a port associated to it?"));
     }
 
-    client_fd_to_port.insert(std::make_pair(new_client_fd, this_client_fd_origin_port->second));
+    // to guarantee we are overriding the fd's recycled by the kernel
+    // we override if a stale fd was inside our control.
+    client_fd_to_port[new_client_fd] = this_client_fd_origin_port->second;
 
     make_fd_non_blocking(new_client_fd);
 
@@ -85,31 +88,15 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     memset(our_buffer, 0, BUFFER_SIZE);
     int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
 
-    // "0" bytes read means a connection drop
-    if (bytes_read == 0) {
+    // client closed connection
+    if (bytes_read <= 0) {
 
-        if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL) == -1) {
-            fail_and_exit_with_message(
-                -1, std::string("Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
-                        + std::strerror(errno));
-        }
-
-        std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
-
-        if (it == client_map.end()) {
-            fail_and_exit_with_message(1, std::string("Why this client fd doesn't have a instance?")
-                                              + std::strerror(errno));
-        }
-
+        epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
         client_map.erase(this_fd);
+        close(this_fd);
 
         std::cout << "The client dropped the connection!\n\n";
         return;
-    }
-
-    // Error case
-    if (bytes_read == -1) {
-        fail_and_exit_with_message(1, std::strerror(errno));
     }
 
     std::map<int, client_connection_struct>::iterator it = client_map.find(this_fd);
@@ -222,6 +209,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         // where a NULL locaiton turns into a 404.
         if (it == responseLocation->cgi_extensions.end()) {
             epoll_event event_settings;
+            memset(&event_settings, 0, sizeof(event_settings));
             event_settings.events = EPOLLOUT;
             event_settings.data.fd = client_connection.client_fd;
             epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
@@ -281,6 +269,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     // standard request setup for send
     epoll_event event_settings;
+    memset(&event_settings, 0, sizeof(event_settings));
     event_settings.events = EPOLLOUT;
     event_settings.data.fd = client_connection.client_fd;
 

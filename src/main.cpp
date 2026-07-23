@@ -11,6 +11,7 @@
 #include "../include/utils/main_functions_utils.hpp"
 #include "../include/utils/utils_config_file.hpp"
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -73,6 +74,15 @@
 //             every feature works during the evaluation.
 // todo: Both: Test with 42 tester
 // todo: Both: Readme.
+// Flipped by SIGINT/SIGTERM so the event loop can exit and run its cleanup
+// (freeing the read buffer, closing fds) instead of being hard-killed. That
+// clean exit is what lets a leak checker like valgrind produce a meaningful,
+// noise-free report. epoll_wait always returns EINTR on a signal (it is never
+// restarted), so flipping this flag is enough to break out even while idle.
+static volatile sig_atomic_t g_stop = 0;
+
+static void handle_stop_signal(int) { g_stop = 1; }
+
 int main(int argc, char** argv) {
 
     const char* configuration_file_path = "./config/example.conf";
@@ -88,7 +98,12 @@ int main(int argc, char** argv) {
         printServer(server_config_vec[i]);
     }
 
+    // Zero the whole struct so the unused half of the data union (we only ever set
+    // data.fd, 4 of its 8 bytes) isn't passed to epoll_ctl as uninitialised bytes.
+    // This variable is reused for every epoll_ctl call below; the padding stays
+    // zeroed since nothing ever writes to it.
     epoll_event event_settings;
+    memset(&event_settings, 0, sizeof(event_settings));
     // Creates an epoll instance, and avoids leaking its instance by using the only valid
     // flag available: "EPOLL_CLOEXEC". This flags instructs the closure of this instance to
     // close itself if the process running changes when using the exec() function. If you
@@ -151,7 +166,12 @@ int main(int argc, char** argv) {
     // std::map<client_fd, ServerConfig> client_fd_to_ServerConfig_ptr;
     // std::map<int, ServerConfig*> client_fd_to_ServerConfig_ptr;
 
-    while (true) {
+    // Graceful shutdown: on Ctrl-C (SIGINT) or `kill` (SIGTERM) we break the loop
+    // below and fall through to the cleanup, rather than dying mid-flight.
+    signal(SIGINT, handle_stop_signal);
+    signal(SIGTERM, handle_stop_signal);
+
+    while (!g_stop) {
         // when server is idle, poll everysecond while we have a cgi running
         // so we can monitor using reap_timed_out_cgis.
         // 1000 here holds this check when epoll is not signaling the server.
@@ -354,6 +374,7 @@ int main(int argc, char** argv) {
                     }
 
                     epoll_event event_settings;
+                    memset(&event_settings, 0, sizeof(event_settings));
                     event_settings.events = EPOLLIN;
                     event_settings.data.fd = client_connection.client_fd;
 
@@ -369,6 +390,23 @@ int main(int argc, char** argv) {
         // After handling this batch of events, retire any CGI that ran too long.
         reap_timed_out_cgis(epoll_instance, client_map, cgi_fd_map);
     }
+
+    // Graceful-shutdown cleanup (reached when g_stop is set). The STL containers
+    // free their own memory when they go out of scope here; we only need to hand
+    // back what we own explicitly: the read buffer and every open fd. Closing the
+    // fds keeps the shutdown tidy (no lingering CLOSE_WAIT/listening sockets).
+    for (std::map<int, client_connection_struct>::iterator it = client_map.begin();
+         it != client_map.end(); ++it) {
+        close(it->first);
+    }
+    for (std::map<int, int>::iterator it = cgi_fd_map.begin(); it != cgi_fd_map.end(); ++it) {
+        close(it->first);
+    }
+    for (std::map<int, int>::iterator it = listening_fd_to_port.begin();
+         it != listening_fd_to_port.end(); ++it) {
+        close(it->first);
+    }
+    close(epoll_instance);
 
     delete[] our_buffer;
 }

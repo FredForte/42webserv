@@ -209,3 +209,22 @@ On the `.conf` file, right now we need to have a `root` set for each location th
 
 Have a new header file with the server defaults, so it can be easily tuned-up.
 with std max timeout, header_allowance size, buffer_size for our input, ...
+
+# Bugs Solved
+We had abrupt disconnects crash the server. In `standard_connecitons_func`, when a `recv()` returned `-1` we would `fail_and_exit_with_message(...)`, which killed the entire process. When a client fires `GET / HTTP/1.1`, then drops the socket right away, `recv()` returns `-1` with `ECONNRESET` (Connection reset by peer).
+
+- Fixed by treating `recv() <= 0` as a situation that would only drop the current client (remove from epoll, erase state, `close()` the fd) and keep the server loop alive. Since we can not read `errono` after `recv()` as stated by the subject, we treat it as a closing case.
+- We were also testing for `recv() == 0` removing from the poll but never closing it.
+
+Resused fd routed to the wrong server block. The kernel recicles the fds. `new_connections_func` used `client_fd_to_port.inser(...)`, but `std::map::insert` does not overwrite an existing key. A recycled fd kept its stale port mapping, so a new connection on `:8082` resolved to the previous port on that not recycles fd.
+
+- Fixed by switching to `operator[]` which overwrites.
+
+## Found using Valgrind
+We had memory leak from `getaddrinfo()` in `socket_utils.cpp`, where we never `freeaddrinfo()`.
+
+- Fixed by adding the `freeaddrinfo()` and also the missing return-value check.
+
+Uninitializd bytes, where every `epoll_event` passed to `epoll_ctl` had uninitialized padding: the `data` field is an 8-byte union but the code only set `.data.fd` (4 bytes)
+
+- Fixed by zero initialized `memset()` all `epoll_event` declarations we have.

@@ -169,6 +169,7 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
     make_fd_non_blocking(file_descriptors[0]);
 
     epoll_event event_settings;
+    memset(&event_settings, 0, sizeof(event_settings));
     event_settings.events = EPOLLIN;
     event_settings.data.fd = file_descriptors[0];
 

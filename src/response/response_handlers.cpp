@@ -1,6 +1,7 @@
 #include "../../include/response/response_handlers.hpp"
 #include "../../include/response/HttpResponseCodesIndex.hpp"
 #include "../../include/utils/utils_config_file.hpp"
+#include <cstring>
 #include <dirent.h>
 #include <fstream>
 #include <sstream>
@@ -14,6 +15,7 @@ void queue_response(int epoll_instance, client_connection_struct& client,
     client.ready_to_respond = true;
 
     epoll_event event_settings;
+    memset(&event_settings, 0, sizeof(event_settings));
     event_settings.events = EPOLLOUT;
     event_settings.data.fd = client.client_fd;
     epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client.client_fd, &event_settings);

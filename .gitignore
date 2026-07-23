@@ -9,3 +9,4 @@ config_request_test
 .vscode
 .devcontainer
 tests/.server.log
+tests/.valgrind.log
