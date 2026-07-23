@@ -2,6 +2,7 @@
 #include "../include/client_connection.hpp"
 #include "../include/main_functions.hpp"
 #include "../include/parser/ConfigParser.hpp"
+#include "../include/parser/ConfigValidator.hpp"
 #include "../include/parser/HttpRequest.hpp"
 #include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
@@ -91,17 +92,33 @@ int main(int argc, char** argv) {
         configuration_file_path = argv[1];
     }
 
+    // readFile returns an empty string for a missing/unreadable file (it can't
+    // signal the failure otherwise), so treat empty source as a hard config error
+    // rather than silently starting a server with nothing to serve.
     std::string source = readFile(configuration_file_path);
-    ConfigParser parser(source);
-    Config server_config_vec = parser.parse();
+    if (source.empty()) {
+        fail_and_exit_with_message(1, std::string("config file is empty or unreadable: ")
+                                          + configuration_file_path);
+    }
+
+    // Parse and validate up front. A bad config must abort startup with a clear
+    // message instead of launching a server that can never answer.
+    Config server_config_vec;
+    try {
+        ConfigParser parser(source);
+        server_config_vec = parser.parse();
+        ConfigValidator validator;
+        validator.validate(server_config_vec);
+    } catch (const std::exception& e) {
+        fail_and_exit_with_message(1, e.what());
+    }
+
     for (size_t i = 0; i < server_config_vec.size(); i++) {
         printServer(server_config_vec[i]);
     }
 
-    // Zero the whole struct so the unused half of the data union (we only ever set
-    // data.fd, 4 of its 8 bytes) isn't passed to epoll_ctl as uninitialised bytes.
-    // This variable is reused for every epoll_ctl call below; the padding stays
-    // zeroed since nothing ever writes to it.
+    // we only set data.fd, so epoll_event would not end up with uninitialized bytes
+    // so memset would initialize all the struct preventing it.
     epoll_event event_settings;
     memset(&event_settings, 0, sizeof(event_settings));
     // Creates an epoll instance, and avoids leaking its instance by using the only valid
@@ -216,9 +233,17 @@ int main(int argc, char** argv) {
                 memset(our_buffer, 0, BUFFER_SIZE);
                 int bytes_read = read(this_fd, our_buffer, BUFFER_SIZE);
 
-                // error case
+                // we cant inspect errno after read, so we treat this as failed cgi
+                // stop the child, drop and close its fd and answer the client with 502.
                 if (bytes_read == -1) {
-                    fail_and_exit_with_message(1, std::strerror(errno));
+                    kill(client_connection->cgi_instance.cgi_pid, SIGKILL);
+                    waitpid(client_connection->cgi_instance.cgi_pid, NULL, 0);
+                    epoll_ctl(epoll_instance, EPOLL_CTL_DEL,
+                              client_connection->cgi_instance.cgi_fd, NULL);
+                    close(client_connection->cgi_instance.cgi_fd);
+                    cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
+                    queue_error_response(epoll_instance, *client_connection, 502);
+                    continue;
                 }
 
                 // data still coming: append it and wait for more on a later iteration.
@@ -249,6 +274,10 @@ int main(int argc, char** argv) {
                                                            "\"epoll_ctl()\" function: ")
                                                    + std::strerror(errno));
                 }
+                // done with the CGI pipe's read end; close it so the fd isn't leaked
+                // for the life of the server (one CGI request would otherwise = one fd).
+                // todo: check why wasnt being closed here before, maybe would be used again by the same client.
+                close(client_connection->cgi_instance.cgi_fd);
 
                 // only send 502 on a positive failure signal (non-zero exit or killed by
                 // a signal). if we couldn't confirm the status, serve the output we have.
