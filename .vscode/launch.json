@@ -23,11 +23,11 @@
                     "text": "-gdb-set disassembly-flavor intel",
                     "ignoreFailures": true
                 },
-                // {
-                //     "description": "Follow fork process",
-                //     "text": "set follow-fork-mode child",
-                //     "ignoreFailures": true
-                // }
+                {
+                    "description": "Follow fork process",
+                    "text": "set follow-fork-mode child",
+                    "ignoreFailures": true
+                }
             ]
         },
         {
@@ -49,11 +49,11 @@
                     "text": "-gdb-set disassembly-flavor intel",
                     "ignoreFailures": true
                 },
-                // {
-                //     "description": "Follow fork process",
-                //     "text": "set follow-fork-mode child",
-                //     "ignoreFailures": true
-                // }
+                /* {
+                    "description": "Follow fork process",
+                    "text": "set follow-fork-mode child",
+                    "ignoreFailures": true
+                } */
             ]
         }
 

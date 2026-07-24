@@ -145,13 +145,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     client_connection_struct& client_connection = *client_connection_ptr;
 
-    std::cout.write(our_buffer, bytes_read);
+    // std::cout.write(our_buffer, bytes_read);
     client_connection.input_buffer.append(our_buffer, bytes_read);
 
     HttpRequestParser req_parser;
 
 	// use the host of the first found instance of port in order to use this
-	// max body size at this stage. 
+	// max body size at this stage.
 	// reassigned to the resolved value when full request is parsed.
     size_t max_body = client_connection.ServerConfig_ptr->client_max_body_size;
 
@@ -179,6 +179,8 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         }
         return;
     }
+
+    std::cout << "RECEBEMOS FULLY" << std::endl;
 
     // create and save request structure
     HttpRequest request;

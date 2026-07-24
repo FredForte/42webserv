@@ -10,3 +10,4 @@ config_request_test
 .devcontainer
 tests/.server.log
 tests/.valgrind.log
+tests/YoupiBanane/youpi.bla
