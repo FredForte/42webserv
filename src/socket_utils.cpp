@@ -21,10 +21,17 @@ int return_a_fully_prepared_socket(const char* PORT_NUMBER_TO_HOST) {
     hint_addrinfo_struct.ai_flags =
         AI_PASSIVE; // "AI_PASSIVE" as an argument results in the use of host machine IP
 
-    getaddrinfo(NULL,                  // IP or domain name
-                PORT_NUMBER_TO_HOST,   // Port number
-                &hint_addrinfo_struct, // Base struct memsetted to zero to serve as hint
-                &result_struct);       // Result struct generated
+    int gai_status =
+        getaddrinfo(NULL,                  // IP or domain name
+                    PORT_NUMBER_TO_HOST,   // Port number
+                    &hint_addrinfo_struct, // Base struct memsetted to zero to serve as hint
+                    &result_struct);       // Result struct generated (heap; freeaddrinfo below)
+
+    // On failure result_struct is left undefined, so bail before touching it.
+    if (gai_status != 0) {
+        fail_and_exit_with_message(
+            1, std::string("getaddrinfo failed: ") + gai_strerror(gai_status));
+    }
 
     int socket_fd =
         socket(result_struct->ai_family, result_struct->ai_socktype, result_struct->ai_protocol);
@@ -44,6 +51,10 @@ int return_a_fully_prepared_socket(const char* PORT_NUMBER_TO_HOST) {
         fail_and_exit_with_message(1,
                                    std::string("Failed to bind socket: ") + std::strerror(errno));
     }
+
+    // getaddrinfo() allocates a linked list on the heap; hand it back now that we
+    // have copied everything we need out of it (the socket is bound).
+    freeaddrinfo(result_struct);
 
     return socket_fd;
 }

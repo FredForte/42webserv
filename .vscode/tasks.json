@@ -4,7 +4,7 @@
 		{
 			"type": "cppbuild",
 			"label": "webserv",
-			"command": "make debug",
+			"command": "make debug CC=g++",
 			"args": [],
 			"options": {
 				"cwd": "${workspaceFolder}"
