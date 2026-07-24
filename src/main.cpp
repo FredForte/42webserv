@@ -388,6 +388,7 @@ int main(int argc, char** argv) {
                         continue;
                     }
 
+                    std::cout.write(client_connection.output_buffer.c_str(), bytes_send);
                     client_connection.output_buffer.erase(0, bytes_send);
                 }
                 // epollout drain, close or keep alive based on conneciton type from

@@ -180,8 +180,6 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         return;
     }
 
-    std::cout << "RECEBEMOS FULLY" << std::endl;
-
     // create and save request structure
     HttpRequest request;
     request = req_parser.parse(client_connection.input_buffer.substr(0, length));
@@ -281,36 +279,4 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
     event_settings.data.fd = client_connection.client_fd;
 
     epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
-
-    // // mock code; remove it later
-    // int execute_cgi_once = false;
-
-    // // mock code below: cgi case
-    // if (execute_cgi_once == true) {
-
-    //     // remove this later
-    //     client_connection.client_connection_type = CGI;
-
-    //     // mock content below:
-    //     client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
-    //     client_connection.cgi_instance.cgi_command.interpreted_language_path = "/usr/bin/python";
-    //     client_connection.cgi_instance.cgi_command.path_to_program =
-    //         "./cgi-bin/sample_python_script.py";
-    //     client_connection.cgi_instance.cgi_command.args.push_back("argument number 1");
-    //     client_connection.cgi_instance.cgi_command.args.push_back("argument number 2");
-    //     client_connection.cgi_instance.cgi_command.args.push_back("argument number 3");
-
-    //     int cgi_fd = 0;
-
-    //     try {
-    //         cgi_fd = execute_cgi(client_connection.cgi_instance);
-    //     } catch (std::exception& e) {
-    //         std::cerr << e.what() << std::endl;
-    //         fail_and_exit_with_message(-1, "We had an exception.");
-    //     }
-
-    //     cgi_fd_map.insert(std::make_pair(cgi_fd, this_fd));
-
-    //     execute_cgi_once = false;
-    // }
 }
