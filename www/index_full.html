@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>webserv test panel</title>
+    <style>
+        :root { color-scheme: light dark; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            margin: 0; padding: 1.5rem;
+            background: #f5f6f8; color: #1a1d21; line-height: 1.5;
+        }
+        h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
+        .sub { color: #5b6470; margin: 0 0 1.25rem; font-size: .9rem; }
+        .bar { margin-bottom: 1.25rem; }
+        button {
+            font: inherit; cursor: pointer; border: 1px solid #c3c9d2;
+            background: #fff; color: #1a1d21; border-radius: 6px;
+            padding: .35rem .8rem;
+        }
+        button:hover { background: #eef1f5; }
+        button:disabled { cursor: not-allowed; opacity: .55; }
+        .run-all { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: 600; }
+        .run-all:hover { background: #1d4ed8; }
+        section { margin-bottom: 1.75rem; }
+        section > h2 {
+            font-size: 1rem; text-transform: uppercase; letter-spacing: .04em;
+            color: #5b6470; border-bottom: 1px solid #dde1e7; padding-bottom: .3rem;
+        }
+        .test {
+            border: 1px solid #dde1e7; border-radius: 8px; background: #fff;
+            padding: .8rem 1rem; margin: .7rem 0;
+        }
+        .test-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+        .test-title { font-weight: 600; }
+        .req {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: .8rem; color: #6b46c1; background: #f3effc;
+            padding: .1rem .4rem; border-radius: 4px;
+        }
+        .expect { font-size: .8rem; color: #5b6470; }
+        .desc { font-size: .88rem; color: #414852; margin: .35rem 0 .55rem; }
+        .test-actions { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+        .badge {
+            font-size: .78rem; font-weight: 700; padding: .1rem .5rem;
+            border-radius: 4px; display: none;
+        }
+        .badge.pass { display: inline; background: #dcfce7; color: #166534; }
+        .badge.fail { display: inline; background: #fee2e2; color: #991b1b; }
+        .badge.info { display: inline; background: #e0e7ff; color: #3730a3; }
+        pre.out {
+            display: none; margin: .6rem 0 0; padding: .6rem .7rem;
+            background: #0f1115; color: #e6e6e6; border-radius: 6px;
+            font-size: .8rem; overflow-x: auto; white-space: pre-wrap;
+            word-break: break-word; max-height: 320px;
+        }
+        pre.out.show { display: block; }
+        .status-line { color: #8be9fd; }
+        .note { color: #fbbf24; }
+        @media (prefers-color-scheme: dark) {
+            body { background: #14161a; color: #e6e8eb; }
+            .sub, section > h2, .expect { color: #9aa4b1; }
+            button { background: #1e2228; color: #e6e8eb; border-color: #333a44; }
+            button:hover { background: #262b33; }
+            .test { background: #1a1d22; border-color: #2a2f38; }
+            .desc { color: #c2c8d0; }
+            .req { color: #d6bcfa; background: #2a2340; }
+            section > h2 { border-color: #2a2f38; }
+        }
+    </style>
+</head>
+<body>
+    <h1>webserv test panel</h1>
+    <p class="sub">
+        Mirrors <code>tests/e2e.sh</code>. Same-origin tests on this port
+        (<span id="origin"></span>) run live and show the real status + body.
+        Tests needing a custom <code>Host</code> header or a different port
+        can't run from a browser — they show why, plus a <code>curl</code> to
+        run by hand.
+    </p>
+
+    <div class="bar">
+        <button class="run-all" onclick="runAll()">▶ Run all browser-runnable</button>
+    </div>
+
+    <section id="reflector">
+        <h2>What your browser actually sends</h2>
+        <div class="desc">
+            A page can't read the headers the browser puts on the wire
+            (<code>Host</code>, <code>User-Agent</code>, <code>Accept</code>, …) —
+            <code>fetch()</code> only exposes headers you set yourself. So this
+            sends a request to <code>/cgi-bin/reflect.py</code>, which rebuilds it
+            from what webserv parsed and echoes it back: the real request line,
+            headers, and body as the server saw them.
+        </div>
+        <div class="test">
+            <label class="desc" for="reflect-body" style="display:block">
+                Optional request body (used by the POST button):
+            </label>
+            <textarea id="reflect-body" rows="3"
+                style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.82rem"
+                placeholder='e.g. {"hello":"world"}'></textarea>
+            <div class="test-actions" style="margin-top:.5rem">
+                <button onclick="reflect('GET')">Send GET → reflect</button>
+                <button onclick="reflect('POST')">Send POST with body → reflect</button>
+            </div>
+            <pre id="reflect-out" class="out"></pre>
+        </div>
+    </section>
+
+    <div id="panel"></div>
+
+    <script>
+    document.getElementById('origin').textContent = location.host;
+
+    // Each test mirrors an assertion in tests/e2e.sh. `runnable:false` means a
+    // browser fundamentally can't perform it (custom Host header, or a
+    // cross-origin port); those carry a `why` + `curl` instead.
+    var GROUPS = [
+        { name: "Standard HTTP", tests: [
+            { title: "GET / → 200", desc: "Root serves index.html.",
+              method: "GET", url: "/", expect: { status: 200 } },
+            { title: "GET /missing → 404", desc: "Unknown path returns the 404 error page.",
+              method: "GET", url: "/missing", expect: { status: 404 } },
+            { title: "DELETE / → 405", desc: "The / location only allows GET.",
+              method: "DELETE", url: "/", expect: { status: 405 } },
+            { title: "GET /old → 301 redirect", desc: "Configured return 301 /new. Browsers hide the 3xx status from fetch, so we only confirm a redirect happened.",
+              method: "GET", url: "/old", expect: { redirect: true } },
+        ]},
+        { name: "Upload lifecycle", desc: "Run these top-to-bottom (Run all does).", tests: [
+            { title: "POST upload → 201", desc: "Creates /upload/regtest.txt.",
+              method: "POST", url: "/upload/regtest.txt", body: "regression payload",
+              expect: { status: 201 } },
+            { title: "GET uploaded file → 200", desc: "Reads the file back.",
+              method: "GET", url: "/upload/regtest.txt", expect: { status: 200, includes: "regression payload" } },
+            { title: "GET /upload/ autoindex → 200", desc: "Directory listing is enabled here.",
+              method: "GET", url: "/upload/", expect: { status: 200, includes: "Index of" } },
+            { title: "DELETE uploaded file → 204", desc: "Removes the file.",
+              method: "DELETE", url: "/upload/regtest.txt", expect: { status: 204 } },
+            { title: "GET deleted file → 404", desc: "Gone after delete.",
+              method: "GET", url: "/upload/regtest.txt", expect: { status: 404 } },
+        ]},
+        { name: "CGI", tests: [
+            { title: "CGI GET → 200", desc: "echo.py runs and reports REQUEST_METHOD=GET.",
+              method: "GET", url: "/cgi-bin/echo.py", expect: { status: 200, includes: "method=GET" } },
+            { title: "CGI POST body → stdin", desc: "Request body is piped to the CGI's stdin.",
+              method: "POST", url: "/cgi-bin/echo.py", body: "hello cgi",
+              expect: { status: 200, includes: "body=[hello cgi]" } },
+            { title: "CGI POST CONTENT_LENGTH", desc: "CONTENT_LENGTH env matches the 9-byte body.",
+              method: "POST", url: "/cgi-bin/echo.py", body: "hello cgi",
+              expect: { status: 200, includes: "len=9" } },
+            { title: "CGI non-zero exit → 502", desc: "fail.py exits non-zero; server returns Bad Gateway.",
+              method: "GET", url: "/cgi-bin/fail.py", expect: { status: 502 } },
+            { title: "CGI runaway → 504", desc: "slow.py never finishes; cgi_timeout (≈3s) kills it → Gateway Timeout. This one takes a few seconds.",
+              method: "GET", url: "/cgi-bin/slow.py", expect: { status: 504 } },
+            { title: "CGI runs in its own dir → 200", desc: "readfile.py reads a file by relative path, proving cwd is the CGI dir.",
+              method: "GET", url: "/cgi-bin/readfile.py", expect: { status: 200, includes: "relative-read-ok" } },
+            { title: "non-CGI file in CGI dir → 404", desc: "A non-executable name in the CGI dir must not hang.",
+              method: "GET", url: "/cgi-bin/nope.txt", expect: { status: 404 } },
+        ]},
+        { name: "Virtual hosts — can't run from browser", tests: [
+            { title: "Host: example.com → 200 (default vhost)", runnable: false,
+              desc: "Routing depends on the Host header, which fetch() is forbidden to set.",
+              why: "fetch() cannot set the Host header (forbidden header name); the browser always sends this port's real host.",
+              curl: "curl -i -H 'Host: example.com' http://127.0.0.1:8080/" },
+            { title: "Host: vhost2.local → 301 (second vhost)", runnable: false,
+              desc: "Same port as example.com, selected only by Host.",
+              why: "fetch() cannot set the Host header.",
+              curl: "curl -i -H 'Host: vhost2.local' http://127.0.0.1:8080/" },
+            { title: "Per-vhost body limit → 413", runnable: false,
+              desc: "vhost2.local caps bodies at 1000; a 2000-byte POST must 413 only when routed there.",
+              why: "Needs the Host header to route to vhost2.local, which fetch() cannot set.",
+              curl: "curl -i -H 'Host: vhost2.local' -X POST --data-binary \"$(python3 -c \"print('z'*2000,end='')\")\" http://127.0.0.1:8080/" },
+        ]},
+        { name: "Other port (8082) — can't run from browser", tests: [
+            { title: "over-limit POST → 413", runnable: false,
+              desc: "The 8082 server caps bodies at 1000 bytes.",
+              why: "Port 8082 is a different origin; the browser blocks the cross-origin response (no CORS headers).",
+              curl: "curl -i -X POST --data-binary \"$(python3 -c \"print('x'*2000,end='')\")\" http://127.0.0.1:8082/anything" },
+            { title: "location-less server → 404", runnable: false,
+              desc: "A server block with no locations still answers without crashing.",
+              why: "Port 8082 is a different origin (cross-origin fetch is blocked).",
+              curl: "curl -i http://127.0.0.1:8082/anything" },
+        ]},
+    ];
+
+    function el(tag, cls, text) {
+        var e = document.createElement(tag);
+        if (cls) e.className = cls;
+        if (text != null) e.textContent = text;
+        return e;
+    }
+
+    function expectLabel(def) {
+        if (def.runnable === false) return "browser can't run this";
+        if (def.expect.redirect) return "expect: redirect";
+        var s = "expect: " + def.expect.status;
+        if (def.expect.includes) s += ' + body contains "' + def.expect.includes + '"';
+        return s;
+    }
+
+    // Build the DOM once; keep a per-test handle to its output + badge.
+    var runnableTests = [];
+    (function build() {
+        var panel = document.getElementById('panel');
+        GROUPS.forEach(function (group) {
+            var sec = el('section');
+            sec.appendChild(el('h2', null, group.name));
+            if (group.desc) { var gd = el('div', 'desc', group.desc); sec.appendChild(gd); }
+            group.tests.forEach(function (def) {
+                var card = el('div', 'test');
+                var head = el('div', 'test-head');
+                head.appendChild(el('span', 'test-title', def.title));
+                head.appendChild(el('span', 'req', (def.method || 'GET') + ' ' + (def.url || '')));
+                head.appendChild(el('span', 'expect', expectLabel(def)));
+                card.appendChild(head);
+                card.appendChild(el('div', 'desc', def.desc));
+
+                var actions = el('div', 'test-actions');
+                var btn = el('button', null, def.runnable === false ? 'Show curl' : 'Run');
+                var badge = el('span', 'badge');
+                var out = el('pre', 'out');
+                actions.appendChild(btn);
+                actions.appendChild(badge);
+                card.appendChild(actions);
+                card.appendChild(out);
+                sec.appendChild(card);
+
+                var handle = { def: def, btn: btn, badge: badge, out: out };
+                btn.onclick = function () { runTest(handle); };
+                if (def.runnable !== false) runnableTests.push(handle);
+            });
+            panel.appendChild(sec);
+        });
+    })();
+
+    function setBadge(badge, kind, text) {
+        badge.className = 'badge ' + kind;
+        badge.textContent = text;
+    }
+
+    // The request as this page issued it. The browser also adds Host/User-Agent/
+    // Accept/etc. that JS can't read — the reflector at the top shows those.
+    function requestPreview(def) {
+        var lines = [def.method + ' ' + def.url + ' HTTP/1.1'];
+        if (def.body != null) {
+            lines.push('Content-Type: text/plain;charset=UTF-8   (fetch default for a string body)');
+            lines.push('Content-Length: ' + def.body.length);
+        }
+        lines.push('(+ Host, User-Agent, Accept, … added by the browser)');
+        lines.push('');
+        lines.push(def.body != null ? def.body : '(no body)');
+        return lines.join('\n');
+    }
+
+    function renderExchange(h, statusLine, statusKind, responseText) {
+        h.out.className = 'out show';
+        h.out.innerHTML = '';
+        h.out.appendChild(el('span', 'status-line', '▶ REQUEST (as this page issued it)'));
+        h.out.appendChild(document.createTextNode('\n' + requestPreview(h.def) + '\n\n'));
+        h.out.appendChild(el('span', 'status-line', '◀ RESPONSE — ' + statusLine));
+        if (responseText != null) {
+            h.out.appendChild(document.createTextNode('\n' + responseText));
+        }
+    }
+
+    function runTest(h) {
+        var def = h.def;
+        if (def.runnable === false) {
+            setBadge(h.badge, 'info', 'manual');
+            h.out.className = 'out show';
+            h.out.innerHTML = '';
+            h.out.appendChild(el('span', 'note', 'Why not in the browser: ' + def.why));
+            h.out.appendChild(document.createTextNode('\n\nRun it by hand:\n' + def.curl + '\n'));
+            return Promise.resolve();
+        }
+
+        setBadge(h.badge, 'info', '…running');
+        h.out.className = 'out show';
+        h.out.textContent = 'Running ' + def.method + ' ' + def.url + ' …';
+        h.btn.disabled = true;
+
+        var opts = { method: def.method, redirect: def.expect.redirect ? 'manual' : 'follow' };
+        if (def.body != null) opts.body = def.body;
+
+        return fetch(def.url, opts).then(function (res) {
+            if (def.expect.redirect) {
+                var redirected = (res.type === 'opaqueredirect') || (res.status >= 300 && res.status < 400);
+                setBadge(h.badge, redirected ? 'pass' : 'fail', redirected ? 'PASS' : 'FAIL');
+                renderExchange(h,
+                    redirected ? 'Redirect detected (opaque — browser hides the 3xx status/body from fetch).'
+                               : 'HTTP ' + res.status + ' — expected a redirect.',
+                    null, null);
+                return;
+            }
+            return res.text().then(function (text) {
+                var ok = res.status === def.expect.status;
+                if (ok && def.expect.includes) ok = text.indexOf(def.expect.includes) !== -1;
+                setBadge(h.badge, ok ? 'pass' : 'fail', ok ? 'PASS' : 'FAIL');
+                var line = 'HTTP ' + res.status + (res.statusText ? ' ' + res.statusText : '');
+                if (!ok) {
+                    line += '  (expected ' + def.expect.status;
+                    if (def.expect.includes) line += ' + "' + def.expect.includes + '"';
+                    line += ')';
+                }
+                renderExchange(h, line, null, text || '(empty body)');
+            });
+        }).catch(function (err) {
+            setBadge(h.badge, 'fail', 'ERROR');
+            renderExchange(h, 'Request failed: ' + err
+                + '\n(If this targets another port, the browser blocks it as cross-origin.)', null, null);
+        }).then(function () {
+            h.btn.disabled = false;
+        });
+    }
+
+    // Ask the server to reflect the request back so we can see the real headers
+    // the browser added (which fetch() itself won't reveal).
+    function reflect(method) {
+        var out = document.getElementById('reflect-out');
+        out.className = 'out show';
+        out.textContent = 'Sending ' + method + ' /cgi-bin/reflect.py …';
+        var opts = { method: method };
+        if (method === 'POST') opts.body = document.getElementById('reflect-body').value;
+        fetch('/cgi-bin/reflect.py', opts).then(function (res) {
+            return res.text().then(function (text) {
+                out.innerHTML = '';
+                out.appendChild(el('span', 'status-line',
+                    'Request as webserv received it (HTTP ' + res.status + '):'));
+                out.appendChild(document.createTextNode('\n\n' + text));
+            });
+        }).catch(function (err) { out.textContent = 'Request failed: ' + err; });
+    }
+
+    // Sequential so the upload lifecycle (create → read → delete → 404) holds.
+    function runAll() {
+        var i = 0;
+        (function next() {
+            if (i >= runnableTests.length) return;
+            runTest(runnableTests[i++]).then(next);
+        })();
+    }
+    </script>
+</body>
+</html>

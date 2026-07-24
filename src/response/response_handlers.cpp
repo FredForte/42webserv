@@ -119,22 +119,26 @@ static std::string generateAutoIndexHtml(const std::string& directory_path,
     return html.str();
 }
 
-// Called from getResponseMessage after selecting the methods
-// Set default values for content-type initially
-// After detecting the path and testing it's type
-// proceeds to get correct types if necessary
-// For auto index, the directory is tested inside generateAutoIndexHtml
-// since it needs to open it, if it fails we get "" and run getErrorPage
+// Alias-style path resolution: strip the location prefix from the request
+// path, then join the remainder with the location's root.
+static std::string resolveLocalPath(const LocationConfig& location,
+                                    const std::string& request_path) {
+    std::string relative = request_path;
+    if (request_path.compare(0, location.path.length(), location.path) == 0) {
+        relative = request_path.substr(location.path.length());
+    }
+    return joinPath(location.root, relative);
+}
+
 HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location,
                               const HttpRequest& request) {
     HttpResponse response;
     HttpResponseCodesIndex codesIndex;
-    // todo: Fred: check for cgi responses validity and treat accordingly.
     response.server_name = server.server_name;
     response.connection = determineConnection(request);
     response.content_type = "text/html; charset=UTF-8";
 
-    std::string local_path = joinPath(location.root, request.path);
+    std::string local_path = resolveLocalPath(location, request.path);
 
     struct stat path_stat;
     if (stat(local_path.c_str(), &path_stat) == 0) {
@@ -282,7 +286,7 @@ HttpResponse handleDeleteRequest(ServerConfig& server, LocationConfig& location,
     response.connection = determineConnection(request);
     response.content_type = "text/html; charset=UTF-8";
 
-    std::string local_path = joinPath(location.root, request.path);
+    std::string local_path = resolveLocalPath(location, request.path);
 
     struct stat path_stat;
     if (stat(local_path.c_str(), &path_stat) != 0) {
