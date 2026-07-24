@@ -59,7 +59,7 @@ A browser can only issue `GET`, so type `<hostname>:<port>/<location>` in the ad
 
 `POST`, `DELETE` and custom headers can't be sent from the address bar, so use `curl`:
 
-- **Upload a file** (`POST`) — stored under `upload_store www/upload`:
+- **Upload a file** (`POST`) : stored under `upload_store www/upload`:
 ```sh
 curl -X POST --data-binary "hello webserv" http://localhost:8080/upload/hello.txt
 ```
@@ -75,15 +75,15 @@ curl -X DELETE http://localhost:8080/upload/hello.txt
 ```sh
 curl -X DELETE http://localhost:8080/
 ```
-- **CGI with a request body** — the body is passed to the script's stdin:
+- **CGI with a request body** : the body is passed to the script's stdin:
 ```sh
 curl -X POST --data-binary "hello cgi" http://localhost:8080/cgi-bin/echo.py
 ```
-- **Virtual host routing** — same port 8080, routed by the `Host` header to `vhost2.local` (a `301`):
+- **Virtual host routing** : same port 8080, routed by the `Host` header to `vhost2.local` (a `301`):
 ```sh
 curl -H "Host: vhost2.local" http://localhost:8080/
 ```
-- **Body-size limit** — `second.local` on 8082 caps bodies at `1000` bytes, so an over-limit `POST` returns `413`:
+- **Body-size limit** : `second.local` on 8082 caps bodies at `1000` bytes, so an over-limit `POST` returns `413`:
 ```sh
 curl -X POST --data-binary "$(python3 -c 'print("x"*2000)')" http://localhost:8082/anything
 ```
@@ -128,3 +128,11 @@ Before starting, `webserv` validates the parsed configuration and exits with a c
 - `return` codes must be in the 3xx range.
 - Duplicate location paths within the same server are not allowed.
 
+# Resources
+
+We used the following resources to understand and build the project:
+
+- https://beej.us/guide/bgnet/html/ 
+    Great resource and very well written about all the corners we can face during the learning and development process of a webserv.
+- https://datatracker.ietf.org/doc/html/rfc2616
+    Good for reference the hard set rules of HTTP1.1

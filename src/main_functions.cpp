@@ -178,7 +178,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 	// max body size for this server config.
     max_body = client_connection.ServerConfig_ptr->client_max_body_size;
 
-    client_connection.input_buffer.erase(0, length);
+    client_connection.input_buffer.clear();
     client_connection.request_data = request;
 
     // get connection type from parsed request, defaults by the HTTP version standards

@@ -116,6 +116,9 @@ HttpRequest HttpRequestParser::parse(const std::string& raw) {
     HttpRequest request;
 
     size_t pos = 0;
+    while (pos + 1 < raw.size() && raw[pos] == '\r' && raw[pos + 1] == '\n') {
+        pos += 2;
+    }
     size_t line_end = raw.find("\r\n", pos);
     parseRequestLine(raw.substr(pos, line_end - pos), request);
     pos = line_end + 2;
@@ -159,11 +162,12 @@ size_t HttpRequestParser::completeRequestLength(const std::string& buffer) {
         return std::string::npos; // headers not fully received yet
     }
 
-    // The headers are now guaranteed complete, so it's safe to reuse the
-    // same non-defensive header parsing parse() uses - no npos risk in this
-    // region specifically, only in the body that follows it.
     HttpRequest probe;
-    size_t pos = buffer.find("\r\n") + 2; // skip past the request-line
+    size_t pos = 0;
+    while (pos + 1 < buffer.size() && buffer[pos] == '\r' && buffer[pos + 1] == '\n') {
+        pos += 2;
+    }
+    pos = buffer.find("\r\n", pos) + 2;
     parseHeaderBlock(buffer, pos, probe);
 
     std::map<std::string, std::string>::const_iterator encoding =
