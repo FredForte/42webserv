@@ -1,5 +1,5 @@
 NAME = webserv
-CC = c++
+CC = g++
 CFLAGS = -Wall -Wextra -Werror -std=c++98
 
 DEBUG ?= 0
