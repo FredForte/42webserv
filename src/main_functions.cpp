@@ -6,6 +6,7 @@
 #include "../include/utils/main_functions_utils.hpp"
 #include "../include/utils/utils_config_file.hpp"
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <sstream>
@@ -156,8 +157,22 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
     size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
     if (length == std::string::npos) {
-        // check the receivd body size, preventing it from exceeding whats set on
-        // conf file, also adds a header size allowance with a macro.
+        if (max_body > 0
+            && client_connection.input_buffer.find("\r\n\r\n") != std::string::npos) {
+            size_t cl_pos = client_connection.input_buffer.find("Content-Length:");
+            if (cl_pos == std::string::npos)
+                cl_pos = client_connection.input_buffer.find("content-length:");
+            if (cl_pos != std::string::npos) {
+                size_t val_start = cl_pos + 15;
+                size_t declared =
+                    static_cast<size_t>(std::atol(
+                        client_connection.input_buffer.c_str() + val_start));
+                if (declared > max_body) {
+                    reject_with_413(epoll_instance, client_connection);
+                    return;
+                }
+            }
+        }
         const size_t HEADER_ALLOWANCE = 16384;
         if (max_body > 0 && client_connection.input_buffer.size() > max_body + HEADER_ALLOWANCE) {
             reject_with_413(epoll_instance, client_connection);

@@ -163,9 +163,9 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location,
                     response.body = getErrorPage(403, server);
                 }
             } else {
-                response.code = 403;
-                response.description = codesIndex.getDescription(403);
-                response.body = getErrorPage(403, server);
+                response.code = 404;
+                response.description = codesIndex.getDescription(404);
+                response.body = getErrorPage(404, server);
             }
         } else if (S_ISREG(path_stat.st_mode)) {
             response.code = 200;
