@@ -8,9 +8,10 @@
 # works as a pre-commit / CI gate). Complements the interactive run_tests.sh.
 #
 # Each case maps to a feature we care about not regressing: standard HTTP,
-# uploads, redirects, CGI (GET/POST/env/failure/timeout), and the crash/hang/
-# leak fixes (location-less server, non-CGI file in a CGI dir, client drops,
-# zombie reaping, overall liveness).
+# uploads, redirects, CGI (GET/POST/env/failure/timeout), alias-style path
+# resolution (prefix stripped then joined onto root, for both static files and
+# CGI scripts), and the crash/hang/leak fixes (location-less server, non-CGI
+# file in a CGI dir, client drops, zombie reaping, overall liveness).
 #
 # Usage: tests/e2e.sh        # builds if needed, runs everything
 #   Header changes: run `make re` first (the Makefile has no header deps).
@@ -169,6 +170,24 @@ assert_body   "CGI POST CONTENT_LENGTH" "len=9" -X POST --data-binary "hello cgi
 assert_status "CGI non-zero exit -> 502" 502 "http://$HOST:8080/cgi-bin/fail.py"
 assert_status "CGI runaway -> 504 (cgi_timeout)" 504 "http://$HOST:8080/cgi-bin/slow.py"
 assert_body   "CGI runs in its own dir (relative file read)" "relative-read-ok" "http://$HOST:8080/cgi-bin/readfile.py"
+
+echo "== alias path resolution (prefix stripped, joined onto root) =="
+# /static is rooted at www/, so the /static prefix must be stripped before
+# joining. A 200 here (not 404) proves alias-style resolution: /static/index.html
+# -> www/index.html, not www/static/index.html.
+assert_status "alias GET /static/index.html -> 200" 200 "http://$HOST:8080/static/index.html"
+assert_body   "alias serves the aliased file (www/index.html)" "<title>Test</title>" "http://$HOST:8080/static/index.html"
+assert_status "alias GET /static/ (index resolved under root) -> 200" 200 "http://$HOST:8080/static/"
+assert_status "alias GET /static/missing -> 404" 404 "http://$HOST:8080/static/missing.html"
+
+echo "== CGI on an alias location =="
+# /scripts is rooted at cgi-bin/, so /scripts/echo.py must resolve to
+# cgi-bin/echo.py. This is the regression the alias CGI fix guards: the script
+# path has to come from the (prefix-stripped) alias root, not the request path.
+assert_status "alias CGI GET -> 200" 200 "http://$HOST:8080/scripts/echo.py"
+assert_body   "alias CGI env: REQUEST_METHOD=GET" "method=GET" "http://$HOST:8080/scripts/echo.py"
+assert_body   "alias CGI POST body -> stdin" "body=\[hello alias\]" -X POST --data-binary "hello alias" "http://$HOST:8080/scripts/echo.py"
+assert_body   "alias CGI POST CONTENT_LENGTH" "len=11" -X POST --data-binary "hello alias" "http://$HOST:8080/scripts/echo.py"
 
 echo "== client_max_body_size =="
 # The 8082 server caps bodies at 1000 bytes.

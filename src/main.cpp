@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
 
                 standard_connections_func(this_fd, BUFFER_SIZE, our_buffer, epoll_instance,
                                           port_to_server_config_ptr_mmap, client_map,
-                                          client_fd_to_port, cgi_fd_map, argv[0]);
+                                          client_fd_to_port, cgi_fd_map);
                 continue;
             }
 

@@ -119,10 +119,11 @@ static std::string generateAutoIndexHtml(const std::string& directory_path,
     return html.str();
 }
 
-// Alias-style path resolution: strip the location prefix from the request
-// path, then join the remainder with the location's root.
-static std::string resolveLocalPath(const LocationConfig& location,
-                                    const std::string& request_path) {
+// alias-style path resolution, remove the location prefix from the request,
+// join the rest with the location's root.
+// CGI flow resolves scritp paths the same way.
+std::string resolveLocalPath(const LocationConfig& location,
+                             const std::string& request_path) {
     std::string relative = request_path;
     if (request_path.compare(0, location.path.length(), location.path) == 0) {
         relative = request_path.substr(location.path.length());

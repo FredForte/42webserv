@@ -32,4 +32,7 @@ HttpResponse buildRedirectResponse(ServerConfig& server, LocationConfig& locatio
                                    const HttpRequest& request);
 std::string joinPath(const std::string& a, const std::string& b);
 
+// path resolution using alias-style path.
+std::string resolveLocalPath(const LocationConfig& location, const std::string& request_path);
+
 #endif

@@ -84,7 +84,7 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
                                std::multimap<int, ServerConfig*>& port_to_server_config_ptr_mmap,
                                std::map<int, client_connection_struct>& client_map,
                                std::map<int, int>& client_fd_to_port,
-                               std::map<int, int>& cgi_fd_map, char* this_bin_path_from_argv) {
+                               std::map<int, int>& cgi_fd_map) {
 
     memset(our_buffer, 0, BUFFER_SIZE);
     int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
@@ -239,23 +239,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
             client_connection.cgi_instance.cgi_command.cgi_type = BINARY;
         }
 
-        // creating argv[0] for execve
-        std::string this_bin_path_from_argv_cpp_str = std::string(this_bin_path_from_argv);
-        std::string::size_type pos = this_bin_path_from_argv_cpp_str.rfind('/');
-        if (pos == std::string::npos) {
-            std::cerr << "Could not locate the cgi-bin folder from argv[0]." << std::endl;
-            queue_error_response(epoll_instance, client_connection, 500);
-            return;
-        }
-        this_bin_path_from_argv_cpp_str.erase(pos + 1);
-
         // fills cgi_command block:
         client_connection.cgi_instance.cgi_command.interpreted_language_path = it->second.c_str();
 
-        // path_to_program is an owned std::string now, so it stays valid for the
-        // life of the connection instead of dangling after this function returns.
+		// resolve script path, stripping the locaton prefix and joining the remainder with
+		// the location's set root.
         client_connection.cgi_instance.cgi_command.path_to_program =
-            joinPath(this_bin_path_from_argv_cpp_str, request.path);
+            resolveLocalPath(*responseLocation, request.path);
 
         client_connection.cgi_instance.cgi_command.envp =
             buildCgiEnv(request, *client_connection.ServerConfig_ptr);
