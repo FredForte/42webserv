@@ -245,8 +245,11 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         client_connection.cgi_instance.cgi_command.path_to_program =
             resolveLocalPath(*responseLocation, request.path);
 
+        // same resolved on-disk path used to exec the script, so PATH_INFO /
+        // SCRIPT_FILENAME / PATH_TRANSLATED point at the real file location.
         client_connection.cgi_instance.cgi_command.envp =
-            buildCgiEnv(request, *client_connection.ServerConfig_ptr);
+            buildCgiEnv(request, *client_connection.ServerConfig_ptr,
+                        client_connection.cgi_instance.cgi_command.path_to_program);
 
         client_connection.cgi_instance.epoll_instance = epoll_instance;
 

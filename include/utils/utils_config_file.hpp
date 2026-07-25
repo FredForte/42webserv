@@ -16,7 +16,8 @@ bool isCloseConnection(const std::string& connection);
 std::string getContentType(const std::string& path);
 std::string getErrorPage(int code, ServerConfig& server);
 std::string getServerSignature();
-std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server);
+std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server,
+                                     const std::string& script_path);
 HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& server,
                               const HttpRequest& request);
 std::string parseResponseToOutPut(HttpResponse response);

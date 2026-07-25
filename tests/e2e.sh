@@ -189,6 +189,14 @@ assert_body   "alias CGI env: REQUEST_METHOD=GET" "method=GET" "http://$HOST:808
 assert_body   "alias CGI POST body -> stdin" "body=\[hello alias\]" -X POST --data-binary "hello alias" "http://$HOST:8080/scripts/echo.py"
 assert_body   "alias CGI POST CONTENT_LENGTH" "len=11" -X POST --data-binary "hello alias" "http://$HOST:8080/scripts/echo.py"
 
+# CGI path variables must follow the location's alias root, not the request URL:
+# /scripts is rooted at cgi-bin/, so PATH_INFO / SCRIPT_FILENAME must resolve to
+# cgi-bin/pathinfo.py. SCRIPT_NAME keeps the virtual URL; REQUEST_URI the target.
+assert_body   "alias CGI PATH_INFO = resolved on-disk path" "^PATH_INFO=cgi-bin/pathinfo.py$" "http://$HOST:8080/scripts/pathinfo.py"
+assert_body   "alias CGI SCRIPT_FILENAME = resolved on-disk path" "^SCRIPT_FILENAME=cgi-bin/pathinfo.py$" "http://$HOST:8080/scripts/pathinfo.py"
+assert_body   "alias CGI SCRIPT_NAME keeps the request URL" "^SCRIPT_NAME=/scripts/pathinfo.py$" "http://$HOST:8080/scripts/pathinfo.py"
+assert_body   "alias CGI REQUEST_URI carries path + query" "^REQUEST_URI=/scripts/pathinfo.py?k=v$" "http://$HOST:8080/scripts/pathinfo.py?k=v"
+
 echo "== client_max_body_size =="
 # The 8082 server caps bodies at 1000 bytes.
 BIG_BODY="$(python3 -c "print('x' * 2000, end='')")"

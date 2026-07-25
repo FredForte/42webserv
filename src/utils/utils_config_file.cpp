@@ -303,7 +303,11 @@ static std::string getHttpDateHeader() {
 // SCRIPT_FILENAME and PATH_TRANSLATED ( the script's on- disk path) and
 // SCRIPT_NAME / PATH_INFO, both sets need the resoled script location
 // which comes from CGI dispatch.
-std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server) {
+// script_path is the alias-resolved on-disk path of the script (the same value
+// used to exec it), so the on-disk CGI variables stay consistent with where the
+// file actually lives, not with the request URL (which diverges under aliases).
+std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server,
+                                     const std::string& script_path) {
     std::vector<std::string> env;
 
     // Server identity and protocol constants.
@@ -318,11 +322,21 @@ std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerCon
         env.push_back("SERVER_PORT=" + port_ss.str());
     }
 
-    // Request line. SCRIPT_NAME/PATH_INFO both carry the request path for now
+    // Request line. SCRIPT_NAME is the script's virtual URL (what the client
+    // asked for); REQUEST_URI is the full original target (path + query).
     env.push_back("REQUEST_METHOD=" + request.method);
     env.push_back("QUERY_STRING=" + request.query_string);
     env.push_back("SCRIPT_NAME=" + request.path);
-    env.push_back("PATH_INFO=" + request.path);
+    std::string request_uri = request.path;
+    if (!request.query_string.empty()) {
+        request_uri += "?" + request.query_string;
+    }
+    env.push_back("REQUEST_URI=" + request_uri);
+
+	// on disk location of the script after alias translation.
+    env.push_back("PATH_INFO=" + script_path);
+    env.push_back("PATH_TRANSLATED=" + script_path);
+    env.push_back("SCRIPT_FILENAME=" + script_path);
 
     // Body framing. CONTENT_LENGTH is always set (0 when there is no body) so a
     // script can rely on it; CONTENT_TYPE mirrors the request header if present.

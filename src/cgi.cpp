@@ -149,21 +149,14 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         }
         envp_vector.push_back(NULL);
 
-        std::cout << "We are the forked process, and our envp is:" << std::endl;
-        for (int i = 0; envp_vector[i] != NULL; i++) {
-            std::cout << "envp_vector[" << i << "]: " << envp_vector[i] << std::endl;
-        }
-
         // cant throw on execve, it would become another webserv instance
         // _exit(1) to get rid of all data and prevent unwanted bytes from
         // being written to buffer, also prevent double executions that
         // can be cause by std::exit()
-        exec_path = "/home/juliohor/42/Milestone 5/webserv/tests/cgi_tester";
         if (execve(exec_path, const_cast<char* const*>(&argv_vector[0]),
                    const_cast<char* const*>(&envp_vector[0]))
             == -1) {
             std::cerr << "Failed to execve CGI process: " << std::strerror(errno) << std::endl;
-            std::cerr << "I'm execve, and we tried to exec: " << exec_path << std::endl;
             _exit(1);
         }
     }
@@ -185,7 +178,6 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         close(file_descriptors[0]);
         // abandoning this request, so the child has no reader, kill it and
         // reap it now with SIGKILL, immediate, so it can't leak or zombie.
-        std::cout << "We killed!!!" << std::endl;
         kill(process_id, SIGKILL);
         waitpid(process_id, NULL, 0);
         throw std::runtime_error(std::string("Failed to register CGI fd with epoll: ")
