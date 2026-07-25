@@ -1,12 +1,9 @@
 #include "../include/cgi.hpp"
-#include "../include/parser/ConfigTypes.hpp"
-#include "../include/parser/HttpRequest.hpp"
-#include "../include/program_flow_utils.hpp"
 #include "../include/socket_utils.hpp"
 #include <cerrno>
+#include <climits>
 #include <csignal>
 #include <cstddef>
-#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
@@ -111,6 +108,21 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         close(file_descriptors[0]);
         close(file_descriptors[1]);
 
+		// path setting for the interpreter languange, 
+		// this prevents looking up for it from the script directory.
+        std::string interpreter_path;
+        if (cgi_command.cgi_type == INTERPRETED_LANGUAGE) {
+            interpreter_path = cgi_command.interpreted_language_path;
+            if (!interpreter_path.empty() && interpreter_path[0] != '/') {
+                char cwd_buf[PATH_MAX];
+                if (getcwd(cwd_buf, sizeof(cwd_buf)) == NULL) {
+                    std::cerr << "CGI getcwd failed: " << std::strerror(errno) << std::endl;
+                    _exit(1);
+                }
+                interpreter_path = std::string(cwd_buf) + "/" + interpreter_path;
+            }
+        }
+
         // run the cgi program from its own directory, so it can open/access files by
         // relative path. chdir into the scripts dir, if valid,
         // reference it by basename so execv uses it as cwd.
@@ -130,8 +142,8 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         const char* exec_path;
 
         if (cgi_command.cgi_type == INTERPRETED_LANGUAGE) {
-            exec_path = cgi_command.interpreted_language_path;
-            argv_vector.push_back(cgi_command.interpreted_language_path);
+            exec_path = interpreter_path.c_str();
+            argv_vector.push_back(interpreter_path.c_str());
             argv_vector.push_back(script_ref.c_str());
         } else { // BINARY: the script itself is the program, argv[0]
             exec_path = script_ref.c_str();

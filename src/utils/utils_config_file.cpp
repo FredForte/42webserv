@@ -338,6 +338,8 @@ std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerCon
     env.push_back("PATH_TRANSLATED=" + script_path);
     env.push_back("SCRIPT_FILENAME=" + script_path);
 
+	std::cout << "printing path info:" << script_path << std::endl;
+
     // Body framing. CONTENT_LENGTH is always set (0 when there is no body) so a
     // script can rely on it; CONTENT_TYPE mirrors the request header if present.
     std::stringstream len_ss;
