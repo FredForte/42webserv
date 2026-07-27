@@ -75,8 +75,47 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
 
 // 413 Payload Too Large, mark the connection to close once it's sent.
 static void reject_with_413(int epoll_instance, client_connection_struct& client) {
-    queue_error_response(epoll_instance, client, 413);
+    // Flagged before the response is built, so it goes out carrying
+    // "Connection: close" - we are rejecting mid-body and the rest of that body
+    // is still on its way, so this connection cannot be reused.
     client.close_after_response = true;
+    queue_error_response(epoll_instance, client, 413);
+    // nothing more will be framed out of what's buffered; drop the half-read
+    // request's state so it can't bleed into anything read afterwards
+    client.input_buffer.clear();
+    client.framing.reset();
+}
+
+// Pulls the request target out of a raw, still-incomplete request so the body
+// limit can be resolved per location before the body has finished arriving.
+// The request line is "METHOD SP TARGET SP VERSION", and the query string is
+// dropped because location matching only looks at the path.
+// Returns "" when the request line isn't fully buffered yet.
+static std::string peekRequestPath(const std::string& buffer) {
+    size_t line_end = buffer.find("\r\n");
+    if (line_end == std::string::npos) {
+        return "";
+    }
+
+    size_t path_start = buffer.find(' ');
+    if (path_start == std::string::npos || path_start > line_end) {
+        return "";
+    }
+    path_start++;
+
+    size_t path_end = buffer.find(' ', path_start);
+    if (path_end == std::string::npos || path_end > line_end) {
+        return "";
+    }
+
+    std::string path = buffer.substr(path_start, path_end - path_start);
+
+    size_t query = path.find('?');
+    if (query != std::string::npos) {
+        path = path.substr(0, query);
+    }
+
+    return path;
 }
 
 void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char* our_buffer,
@@ -86,15 +125,17 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
                                std::map<int, int>& client_fd_to_port,
                                std::map<int, int>& cgi_fd_map) {
 
-    memset(our_buffer, 0, BUFFER_SIZE);
+    // No memset: recv() reports exactly how many bytes it wrote and only that
+    // many are ever appended below. Zeroing megabytes before each read would
+    // cost more than the read.
     int bytes_read = recv(this_fd, our_buffer, BUFFER_SIZE, 0);
 
-    // client closed connection
+    // client closed connection. Anything it had in flight goes with it - most
+    // importantly a running cgi, whose child and pipe would otherwise outlive the
+    // only connection interested in the result.
     if (bytes_read <= 0) {
 
-        epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
-        client_map.erase(this_fd);
-        close(this_fd);
+        drop_client(epoll_instance, client_map, cgi_fd_map, this_fd);
 
         std::cout << "The client dropped the connection!\n\n";
         return;
@@ -109,10 +150,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         a_client_connection.client_fd = this_fd;
         a_client_connection.ready_to_respond = false;
         a_client_connection.close_after_response = false;
+        a_client_connection.output_sent = 0;
         a_client_connection.client_connection_type = STANDARD;
         a_client_connection.cgi_instance.client_fd = this_fd;
-        a_client_connection.cgi_instance.cgi_fd = 0;
         a_client_connection.cgi_instance.epoll_instance = epoll_instance;
+        // the constructor already parks the slot at "nothing running" (-1s); leave
+        // it that way rather than writing 0, which is a real descriptor
+        resetCgiInstance(a_client_connection.cgi_instance);
 
         std::stringstream ss;
         ss << a_client_connection.client_fd;
@@ -152,10 +196,19 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
 
 	// use the host of the first found instance of port in order to use this
 	// max body size at this stage.
-	// reassigned to the resolved value when full request is parsed.
-    size_t max_body = client_connection.ServerConfig_ptr->client_max_body_size;
+	// the location can already be matched off the (partial) request line, so a
+	// location-level override applies even while the body is still streaming in.
+	// both get re-resolved against the real server block once the request is complete.
+    HttpRequest partial_request;
+    partial_request.path = peekRequestPath(client_connection.input_buffer);
+    size_t max_body = resolveMaxBodySize(
+        *client_connection.ServerConfig_ptr,
+        partial_request.path.empty()
+            ? NULL
+            : findRequestedLocation(*client_connection.ServerConfig_ptr, partial_request));
 
-    size_t length = req_parser.completeRequestLength(client_connection.input_buffer);
+    size_t length = req_parser.completeRequestLength(client_connection.input_buffer,
+                                                     client_connection.framing);
     if (length == std::string::npos) {
         if (max_body > 0
             && client_connection.input_buffer.find("\r\n\r\n") != std::string::npos) {
@@ -180,35 +233,51 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         return;
     }
 
-    // create and save request structure
-    HttpRequest request;
-    request = req_parser.parse(client_connection.input_buffer.substr(0, length));
+    // Parse straight into the connection's own request object, and refer to it
+    // by reference from here on. The old form - parse into a local, then assign
+    // that local into the connection - copied the entire body twice on top of the
+    // copy substr() had already made of the whole buffer. For a 100MB upload that
+    // was 300MB of memcpy before the request had even been dispatched.
+    // No substr() either: the body is bounded by Content-Length (or by the
+    // terminating chunk), so anything after this request is never picked up.
+    HttpRequest& request = client_connection.request_data;
+    req_parser.parseInto(client_connection.input_buffer, request);
 
 	// with the request parsed, we resolve which server block on this port should serve it
 	// does not return null, it falls back to the default server port
     client_connection.ServerConfig_ptr = get_server_config_instance_based_on_port_and_hostname(
         this_fd, request, client_fd_to_port, port_to_server_config_ptr_mmap);
 
-	// now with the full request values, we can reassign the final
-	// max body size for this server config.
-    max_body = client_connection.ServerConfig_ptr->client_max_body_size;
-
-    client_connection.input_buffer.clear();
-    client_connection.request_data = request;
+    // The body has been copied out, so hand the read buffer's memory back rather
+    // than just resetting its length - clear() would keep a 100MB allocation
+    // reserved for as long as this connection stays open. Small buffers are left
+    // alone so ordinary keep-alive traffic keeps reusing one allocation.
+    if (client_connection.input_buffer.capacity() > 64 * 1024) {
+        std::string().swap(client_connection.input_buffer);
+    } else {
+        client_connection.input_buffer.clear();
+    }
+    // this request is now fully sliced off, so the next one on this keep-alive
+    // connection has to be framed from scratch
+    client_connection.framing.reset();
 
     // get connection type from parsed request, defaults by the HTTP version standards
     // if not defined on the request
     client_connection.close_after_response = isCloseConnection(determineConnection(request));
+
+    // find location to determine request type
+    LocationConfig* responseLocation =
+        findRequestedLocation(*client_connection.ServerConfig_ptr, request);
+
+	// now with the full request values, we can reassign the final max body size:
+	// the matched location's override wins over the resolved server block's value.
+    max_body = resolveMaxBodySize(*client_connection.ServerConfig_ptr, responseLocation);
 
     // Exact body-size enforcement now that the full request is decoded.
     if (max_body > 0 && request.body.size() > max_body) {
         reject_with_413(epoll_instance, client_connection);
         return;
     }
-
-    // find location to determine request type
-    LocationConfig* responseLocation =
-        findRequestedLocation(*client_connection.ServerConfig_ptr, request);
 
     // cgi request
     if (responseLocation && !responseLocation->cgi_extensions.empty()) {
@@ -230,6 +299,13 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
             epoll_ctl(epoll_instance, EPOLL_CTL_MOD, client_connection.client_fd, &event_settings);
             return;
         }
+
+        // cgi_instance lives for the whole connection, so a keep-alive client
+        // reuses the same struct for every request it makes. The collected output
+        // of the previous run is still in there; without this reset the next run
+        // appends to it and the client gets the old body (plus the new run's raw
+        // CGI header block) glued in front of its response.
+        client_connection.cgi_instance.cgi_response.clear();
 
         // binary executable does not use path
         client_connection.cgi_instance.cgi_command.cgi_type = INTERPRETED_LANGUAGE;
@@ -259,11 +335,19 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         try {
             cgi_fd = execute_cgi(client_connection.cgi_instance, request.body);
         } catch (std::exception& e) {
-            // a failed cgi answer with a 500 and keep serving.
+            // a failed cgi answer with a 500 and keep serving. execute_cgi may have
+            // got as far as forking before it threw, so park the slot back at
+            // "nothing running" instead of leaving a pid it already reaped.
             std::cerr << e.what() << std::endl;
+            resetCgiInstance(client_connection.cgi_instance);
             queue_error_response(epoll_instance, client_connection, 500);
             return;
         }
+
+        // execute_cgi has staged the body into the child's stdin temp file, so the
+        // in-memory copy is dead weight from here on - and it would otherwise sit
+        // there for the whole run, alongside the output the child is producing.
+        std::string().swap(request.body);
 
         client_connection.cgi_instance.cgi_fd = cgi_fd;
         client_connection.cgi_instance.start_time = time(NULL);

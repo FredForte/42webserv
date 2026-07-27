@@ -8,10 +8,10 @@
 
 // puts a finished response on the epollout for a client:
 // serializes it into the output buffer, marks the connection ready,
-// and arms EPOLLOUT so the event.
+// and arms EPOLLOUT so the event
 // main loop's write branch drains it.
 void queue_response(int epoll_instance, client_connection_struct& client,
-                    const HttpResponse& response);
+                    HttpResponse& response);
 
 // builds an error page for status_code and queues it by
 // turning a per-request failure into a proper error response.

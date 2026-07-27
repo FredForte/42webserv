@@ -40,6 +40,13 @@ void printLocation(const LocationConfig& location) {
 
     std::cout << "    cgi_timeout: " << location.cgi_timeout << "\n";
 
+    std::cout << "    client_max_body_size: ";
+    if (location.has_client_max_body_size) {
+        std::cout << location.client_max_body_size << "\n";
+    } else {
+        std::cout << "(inherits server)\n";
+    }
+
     std::cout << "  }\n";
 }
 
@@ -102,6 +109,15 @@ LocationConfig* findRequestedLocation(ServerConfig& server_conf, HttpRequest& re
         }
     }
     return best_match;
+}
+
+// returns the effective body size limit, if set on location
+// the server config is overiden.
+size_t resolveMaxBodySize(const ServerConfig& server, const LocationConfig* location) {
+    if (location != NULL && location->has_client_max_body_size) {
+        return location->client_max_body_size;
+    }
+    return server.client_max_body_size;
 }
 
 // Returns the substring after the last '.' in the file's basename (not the
@@ -301,11 +317,8 @@ static std::string getHttpDateHeader() {
 // except Content-Type and Content-Length, which turn into CONTENT_TYPE and
 // CONTENT-LENGTH without the HTTP_ prefix.
 // SCRIPT_FILENAME and PATH_TRANSLATED ( the script's on- disk path) and
-// SCRIPT_NAME / PATH_INFO, both sets need the resoled script location
-// which comes from CGI dispatch.
-// script_path is the alias-resolved on-disk path of the script (the same value
-// used to exec it), so the on-disk CGI variables stay consistent with where the
-// file actually lives, not with the request URL (which diverges under aliases).
+// PATH_INFO needs the requests URL which comes from CGI dispatch.
+// script_path is the alias-resolved on-disk path of the script.
 std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server,
                                      const std::string& script_path) {
     std::vector<std::string> env;
@@ -333,12 +346,12 @@ std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerCon
     }
     env.push_back("REQUEST_URI=" + request_uri);
 
-	// on disk location of the script after alias translation.
-    env.push_back("PATH_INFO=" + script_path);
+	// PATH_INFO matches that URL's path exactly, so it has to mirror
+	// request.path. Only PATH_TRANSLATED / SCRIPT_FILENAME carry the
+	// alias-resolved on-disk location.
+    env.push_back("PATH_INFO=" + request.path);
     env.push_back("PATH_TRANSLATED=" + script_path);
     env.push_back("SCRIPT_FILENAME=" + script_path);
-
-	std::cout << "printing path info:" << script_path << std::endl;
 
     // Body framing. CONTENT_LENGTH is always set (0 when there is no body) so a
     // script can rely on it; CONTENT_TYPE mirrors the request header if present.
@@ -384,7 +397,8 @@ std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerCon
 // When no header/body separator is detected, everything is treated as
 // a bare body (default 200 / text-html), so a script that only prints
 // text still works using this case.
-HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& server,
+// cgi_output is taken by non-const reference to prevent extra copy layers.
+HttpResponse parseCgiResponse(std::string& cgi_output, ServerConfig& server,
                               const HttpRequest& request) {
     HttpResponseCodesIndex codesIndex;
     HttpResponse response;
@@ -405,13 +419,18 @@ HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& serve
 
     // No separator == no CGI header block at all: treat it all as the body.
     if (split == std::string::npos) {
-        response.body = cgi_output;
+        response.body.swap(cgi_output); // whole thing is the body, hand the buffer over
         response.content_length = response.body.size();
         return response;
     }
 
     std::string header_block = cgi_output.substr(0, split);
-    response.body = cgi_output.substr(split + separator.length());
+
+    // take ownership of the buffer, then drop the header block off the front.
+    // erase() shifts the body down once; copying it out would have allocated a
+    // second buffer the same size and kept both alive until the caller returned.
+    response.body.swap(cgi_output);
+    response.body.erase(0, split + separator.length());
     response.content_length = response.body.size();
 
     bool status_seen = false;
@@ -486,9 +505,10 @@ HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& serve
 // Very procedural and illustrative way of creating our response
 // header and body, I left it spaced out as much as possible
 // to make it clear where each header line goes and how its
-// being set here
-std::string parseResponseToOutPut(HttpResponse response) {
-    std::string output;
+// being set here.
+// Serialises into `output` to prevent extra copy layers.
+void parseResponseToOutPut(const HttpResponse& response, std::string& output) {
+    output.clear();
     output.append("HTTP/1.1 ");
 
     std::stringstream ss;
@@ -543,7 +563,16 @@ std::string parseResponseToOutPut(HttpResponse response) {
 
     output.append("\r\n");
 
+    // One shot for the body: without reserving, append() grows the string by
+    // doubling and recopies everything already written on each step.
+    output.reserve(output.size() + response.body.size());
     output.append(response.body);
+}
 
+// Kept for callers that just want the string; the reference form above is what
+// the response path uses.
+std::string parseResponseToOutPut(const HttpResponse& response) {
+    std::string output;
+    parseResponseToOutPut(response, output);
     return output;
 }

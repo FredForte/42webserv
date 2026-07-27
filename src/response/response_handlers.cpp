@@ -10,8 +10,13 @@
 #include <unistd.h>
 
 void queue_response(int epoll_instance, client_connection_struct& client,
-                    const HttpResponse& response) {
-    client.output_buffer = parseResponseToOutPut(response);
+                    HttpResponse& response) {
+    if (client.close_after_response) {
+        response.connection = "close";
+    }
+
+    parseResponseToOutPut(response, client.output_buffer);
+    client.output_sent = 0; // fresh buffer, so drain from the front again
     client.ready_to_respond = true;
 
     epoll_event event_settings;
@@ -191,7 +196,8 @@ HttpResponse handleGetRequest(ServerConfig& server, LocationConfig& location,
 // For post request we focus on sending a file to be saved at the location
 // set to upload enabled inside the conf file
 // If upload_enabled is false 403 Forbidden
-// If no filename provided 400 Bad Request
+// If no filename provided 200 OK, nothing stored (POST to the location itself,
+// with or without a body, is a legitimate request)
 // If we fail to stream the content to our ofstream 500 Internal Server Error
 //
 HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location,
@@ -211,11 +217,18 @@ HttpResponse handlePostRequest(ServerConfig& server, LocationConfig& location,
         return response;
     }
 
+    // if no filename is provided the POST is still valid.
     std::string filename = extractUploadFilename(location, request);
     if (filename.empty()) {
-        response.code = 400;
-        response.description = codesIndex.getDescription(400);
-        response.body = getErrorPage(400, server);
+        std::stringstream body;
+        body << "<html>\n<head><title>200 OK</title></head>\n"
+             << "<body>\n<center><h1>200 OK</h1></center>\n"
+             << "<center>Accepted " << request.body.size() << " bytes</center>\n"
+             << "<hr><center>" << getServerSignature() << "</center>\n</body>\n</html>";
+
+        response.code = 200;
+        response.description = codesIndex.getDescription(200);
+        response.body = body.str();
         response.content_length = response.body.size();
         return response;
     }

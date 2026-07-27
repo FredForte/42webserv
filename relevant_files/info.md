@@ -80,8 +80,10 @@ We are using `determineConnection(const HttpRequest &req)` to decide the connect
 
 Our main needs to also read the connection flag in order to close or keep the conneciton open for the responded client.
 
+`queue_response` overrides all of the above with `close` when `close_after_response` is set — see [Connection Close Honesty](#connection-close-honesty).
+
 # Cgi Environment
-We use the function `std::vector<std::string> buildCgiEnv(request, server)` at `utils_config_file.cpp`
+We use the function `std::vector<std::string> buildCgiEnv(request, server, script_path)` at `utils_config_file.cpp` — `script_path` is the alias-resolved on-disk location, see [CGI Env: URL space vs disk space](#cgi-env-url-space-vs-disk-space) for which variables take it and which take the request path.
 It works with full CGI/1.1 meta-variable set + `HTTP_*` headers, same `KEY=VALUE` vector shape `excecute_cgi` already uses for argv.
 
 ## Cgi Env Integration
@@ -119,8 +121,10 @@ URL's `?` section even though both encode `key=value&key=value`.
 
 Status of each channel on our side:
 - `QUERY_STRING` (the `?` path): **done** — set by `buildCgiEnv`.
-- Body → stdin (POST): **pending** — needs the second pipe in `execute_cgi`
-  described above (Julio's dispatch/exec side); `CONTENT_LENGTH` is already set.
+- Body → stdin (POST): **done** — but *not* with the second pipe sketched above.
+  The body is staged into a temp file which is `dup2`'d onto the child's stdin,
+  because a pipe buffer is 64KB and anything bigger would deadlock the parent
+  writing into it. `CONTENT_LENGTH` tells the script how much to read.
 
 
 # Cgi Response Parsing
@@ -133,13 +137,16 @@ We have `HttpResponse paraseCgiResponse(cgi_output, server, request)` at `utils_
 ## Cgi Integration
 In our main response from CGI block:
 
-```cpp
-HttpResponse cgi_response = parseCgiResponse(
-    client_connection->cgi_instance.cgi_response,
-    *client_connection->ServerConfig_ptr,   // parseCgiResponse takes a reference
-    client_connection->request_data);
-client_connection->output_buffer.append(parseResponseToOutPut(cgi_response));
+This now lives in `complete_cgi_request` (`main_functions_utils.cpp`) rather than
+inline in `main.cpp`, and goes through `queue_response` so the Connection header
+and the send offset are set consistently:
 
+```cpp
+HttpResponse response = parseCgiResponse(
+    client.cgi_instance.cgi_response,       // NOTE: emptied - the buffer is
+    *client.ServerConfig_ptr,               // swapped into response.body
+    client.request_data);
+queue_response(epoll_instance, client, response);
 ```
 
 # Cgi Timeout
@@ -188,7 +195,7 @@ Since we can not use `errno` we cant tell a genuinely dead socket from a `EAGAIN
 If we happen to send a big buffer to a slow client, we would end up closing the connecition from not knowing the correct state, but its a `webserv` project limitation from the start.
 
 # CGI Timout
-We have `reap_timed_out_cgis` in `main_functions_utils.cpp`, it iterated on all saves cgi processes that are running and checking for the time span withtout a response.
+We have `reap_timed_out_cgis` in `main_functions_utils.cpp`, it iterated on all saves cgi processes that are running and checking for the time span withtout a response. It also finishes runs whose stdout closed before the child was reapable — see [CGI Lifecycle](#cgi-lifecycle).
 
 And in `main.cpp` on our main loop we run a `epoll_wait` that holds 1 seconds when server is idle, to pool everysecond while we have a cgi running, so we can monitor using `reap_timed_out_cgis`. The 1 seconds in it only holds it when no epoll event is received.
 
@@ -201,6 +208,8 @@ We have a DoS guard while the request is still incomplete, if the buffer brows p
 `0` as max body on location .conf means unlimited (same as nginx does).
 
 On `client_connection.hpp, main.cpp` we have `close_after_response`flag, making the EPOLLOUT loop drop the connection once a terminal response (413) is sent.
+
+The directive is honoured inside a `location` block too, overriding the server's — see [Client Max Body Size per Location](#client-max-body-size-per-location).
 
 # Improvements
 
@@ -228,3 +237,75 @@ We had memory leak from `getaddrinfo()` in `socket_utils.cpp`, where we never `f
 Uninitializd bytes, where every `epoll_event` passed to `epoll_ctl` had uninitialized padding: the `data` field is an 8-byte union but the code only set `.data.fd` (4 bytes)
 
 - Fixed by zero initialized `memset()` all `epoll_event` declarations we have.
+
+# Request Framing State
+`RequestFraming` (`HttpRequestParser.hpp`) lives on `client_connection.framing` and carries what is already known about the request currently filling `input_buffer`, so each `recv()` only inspects the bytes it just added instead of re-reading from byte 0.
+
+- header block located and measured once: `headers_done`, `header_length`
+- body framing latched once: `chunked`, or `has_body_length` + `content_length`
+- `header_scan` resumes the blank-line search at `size - 3`, so a terminator split across two reads is still caught without re-scanning the front
+- `chunk_scan` parks on the first chunk that is not fully buffered, so chunks already received are never re-walked
+
+Cases to cater: the request can be split at **any** byte (mid-header, across the blank line, mid chunk-size line, mid chunk-data). Call `framing.reset()` when a request is consumed and on 413, or the next request on that keep-alive connection gets measured with the previous one's numbers.
+
+`parse()` still exists for one-shot callers; it just runs `parseInto` on a throwaway request.
+
+# Response Draining
+`client_connection.output_sent` marks how far into `output_buffer` we have sent. Drain by advancing it, never by `erase(0, n)` from the front: erase has to memmove everything still queued, which turns into quadratic work the moment a send only drains part of the buffer (i.e. as soon as several clients compete for bandwidth). One client hides it completely, since the socket swallows the whole response in a few sends.
+
+Reset `output_sent` to 0 anywhere `output_buffer` is replaced: `queue_response`, and the standard-response block in `main.cpp`.
+
+# CGI Lifecycle
+`cgi_instance_struct` is owned by the connection and reused for every request it makes, so "nothing running" has to be representable: `-1` for both `cgi_fd` and `cgi_pid`. Not `0` — that is a real descriptor (stdin), and once a run ends the kernel is free to hand its old fd number straight back to the next `accept()`.
+
+Helpers in `main_functions_utils.cpp`:
+- `resetCgiInstance` — back to idle, drops collected output
+- `detach_cgi_fd` — unregister from epoll, close the pipe, drop the map entry; optionally kill+reap. Idempotent, so terminal paths call it blindly
+- `complete_cgi_request` — finished run into a response (502 on bad exit, else parsed output), then detach + reset
+- `drop_client` — full client teardown *including* any CGI still in flight
+
+Cases to cater:
+- **every** terminal path resets: success, 502 (non-zero exit), 502 (read error), 504 (timeout), and the `execute_cgi` throw — it can fork before throwing, leaving a pid it already reaped
+- **pipe EOF with the child not yet reapable**: take the fd off epoll immediately. A pipe whose writer is gone stays readable forever, so leaving it armed makes epoll hand it back on every wakeup — a full-CPU spin until the child exits or the timeout fires. The reaper finishes it instead
+- **client disconnects mid-run**: kill the child. The reaper skips entries whose client is gone, so nothing else would ever collect it
+
+`reap_timed_out_cgis` therefore has two jobs: kill + 504 anything past its `cgi_timeout`, and finish runs parked with `stdout_closed` once they become reapable.
+
+# Connection Close Honesty
+Whenever `close_after_response` is set, the response **must** advertise `Connection: close`. `queue_response` rewrites the header in place (copying an `HttpResponse` would duplicate the whole body), so the flag has to be set *before* the response is built — see `reject_with_413`.
+
+Why it matters: a pooling client (Go's `http.Client`, which the 42 tester uses) believes `keep-alive`, returns the socket to its idle pool, sends its next request on it and gets an RST back. It is intermittent by nature — and curl does not reuse connections aggressively enough to ever show it, so a curl-based check cannot catch this.
+
+# Client Max Body Size per Location
+`LocationConfig` carries `has_client_max_body_size` + `client_max_body_size`. The separate flag is required because `0` already means "unlimited", so it cannot double as "unset". `resolveMaxBodySize(server, location)` returns the location override when present, otherwise the server value; a NULL location falls back to the server.
+
+Applied at both enforcement points:
+- the **early reject**, while the body is still arriving — `peekRequestPath()` pulls the target out of the partial request line so the right location's limit is used before the body has landed
+- the **exact check** after parsing, which needs `findRequestedLocation` resolved first
+
+# Body Copy Discipline
+A body is buffered once and then handed along by reference or by swap. Every one of these was a full copy of the upload:
+
+- `parseInto(raw, out)` fills the connection's own `request_data` — no `substr` of the buffer, no return-by-value, no assignment into place
+- `body.assign(raw, pos, len)` instead of `= raw.substr(...)`, which builds a whole second copy and then copy-assigns it
+- `parseResponseToOutPut(const HttpResponse&, std::string& out)` serialises straight into `output_buffer` (by-value + by-return was two more copies)
+- `parseCgiResponse(std::string& cgi_output, ...)` **empties its argument**: the buffer is swapped into `response.body` and the header prefix erased in place. Safe only because the caller resets the instance right after — a trap for any future caller
+- `request_data.body` is released once `execute_cgi` has staged it to the child's stdin temp file; it is dead weight for the rest of the run
+- `input_buffer` is released with `std::string().swap()` above 64KB. `clear()` only resets the length — libstdc++ keeps the allocation, so a connection that once carried a large upload holds that memory for as long as it stays open
+
+# Read Buffer
+One shared scratch buffer (`BUFFER_SIZE` in `main.cpp`) for every `recv()` and every CGI pipe read, so its size costs us once rather than once per connection. Sized at 2MB, under `net.core.rmem_max` (4MB here) — past the socket buffer ceiling there is never that much waiting to be read.
+
+No `memset` before a read: `recv`/`read` report exactly how many bytes they wrote and only those are ever used. Zeroing the buffer first would cost more than the read itself at this size.
+
+# CGI Env: URL space vs disk space
+Two distinct sets of meta-variables, never to be mixed:
+- **URL space** — `PATH_INFO`, `SCRIPT_NAME`, `REQUEST_URI` follow `request.path`
+- **disk space** — `PATH_TRANSLATED`, `SCRIPT_FILENAME` follow the alias-resolved on-disk path
+
+The 42 `cgi_tester` rebuilds the request from `REQUEST_URI` and refuses to run unless `PATH_INFO` equals that URL's path, so `PATH_INFO` must never carry the on-disk location. `cgi-bin/pathinfo.py` is the fixture that pins both halves.
+
+# POST Acceptance
+A location needs `upload_store` (or a `cgi` entry) to accept POST at all — without it `upload_enabled` is false and the answer is 403 before anything else is looked at.
+
+A POST aimed at the location prefix itself (`POST /post_body`) carries no filename to store under, and a body is optional for POST anyway. That is a valid request, not a client error: 200, nothing written.

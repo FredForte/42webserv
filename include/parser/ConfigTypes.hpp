@@ -22,6 +22,9 @@ struct ListenAddr {
 // redirect is configured for this block redirect_target : destination used when redirect_code != 0
 // cgi_extensions : map with the extensions and path for the cgi executors
 // cgi_timeout : max seconds a CGI process may run; defaults to CGI_TIMEOUT_DEFAULT_SECONDS
+// has_client_max_body_size : whether this block overrides the server's body limit. boolean here
+// because 0 means unlimited body size.
+// client_max_body_size : the override itself, only read when has_client_max_body_size is true
 struct LocationConfig {
     std::string path;
     std::vector<std::string> methods;
@@ -34,6 +37,8 @@ struct LocationConfig {
     std::string redirect_target;
     std::map<std::string, std::string> cgi_extensions;
     size_t cgi_timeout;
+    bool has_client_max_body_size;
+    size_t client_max_body_size;
 };
 
 // listens : we will consume all the connections that are going to be saved on this vector

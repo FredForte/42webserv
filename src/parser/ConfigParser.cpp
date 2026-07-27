@@ -59,6 +59,8 @@ LocationConfig ConfigParser::parseLocation(const std::string& path) {
     location.upload_enabled = false;
     location.redirect_code = 0;
     location.cgi_timeout = CGI_TIMEOUT_DEFAULT_SECONDS;
+    location.has_client_max_body_size = false;
+    location.client_max_body_size = 0;
 
     expect(TOKEN_LBRACE);
 
@@ -81,6 +83,8 @@ LocationConfig ConfigParser::parseLocation(const std::string& path) {
             parseCgi(location);
         } else if (directive == "cgi_timeout") {
             parseCgiTimeout(location);
+        } else if (directive == "client_max_body_size") {
+            parseClientMaxBodySize(location);
         }
     }
 
@@ -121,6 +125,14 @@ void ConfigParser::parseClientMaxBodySize(ServerConfig& server) {
     std::string value = expectWord();
     expect(TOKEN_SEMICOLON);
     server.client_max_body_size = static_cast<size_t>(std::atol(value.c_str()));
+}
+
+// location set client_max_body_size overrides the server block.
+void ConfigParser::parseClientMaxBodySize(LocationConfig& location) {
+    std::string value = expectWord();
+    expect(TOKEN_SEMICOLON);
+    location.client_max_body_size = static_cast<size_t>(std::atol(value.c_str()));
+    location.has_client_max_body_size = true;
 }
 
 void ConfigParser::parseMethods(LocationConfig& location) {

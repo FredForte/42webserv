@@ -81,4 +81,24 @@ void ConfigValidator::validateLocation(const LocationConfig& locationConf) {
         throw configError("location \"" + locationConf.path + "\" return code "
                           + toString(locationConf.redirect_code) + " is not a 3xx redirect");
     }
+
+    // A POST needs somewhere for the body to go: either a store to write it to or
+    // a cgi to hand it to. Advertising POST without one is a config that can only
+    // ever answer 403, so it is rejected at boot instead of at request time.
+    // A "return" location is exempt: it answers every method with the redirect and
+    // never looks at the body.
+    bool allows_post = false;
+    for (size_t i = 0; i < locationConf.methods.size(); i++) {
+        if (locationConf.methods[i] == "POST") {
+            allows_post = true;
+            break;
+        }
+    }
+
+    if (allows_post && locationConf.redirect_code == 0 && !locationConf.upload_enabled
+        && locationConf.cgi_extensions.empty()) {
+        throw configError("location \"" + locationConf.path
+                          + "\" allows POST but has no \"upload_store\" to write to and no \"cgi\" "
+                            "to hand the body to");
+    }
 }

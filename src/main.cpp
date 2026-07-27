@@ -171,7 +171,13 @@ int main(int argc, char** argv) {
         }
     }
 
-    const unsigned int BUFFER_SIZE = 4096;
+    // One shared scratch buffer for every recv() and every CGI pipe read, so its
+    // size costs us once, not once per connection. 4KB meant ~25,000 round trips
+    // through the event loop for a 100MB upload; this size drains whatever the
+    // kernel has queued in far fewer passes. It is deliberately near the socket
+    // buffer ceiling (net.core.rmem_max, 4MB here) - past that there is simply
+    // never that much waiting to be read.
+    const unsigned int BUFFER_SIZE = 2 * 1024 * 1024;
     char* our_buffer = new char[BUFFER_SIZE]();
 
     epoll_event event_poll[64];
@@ -230,19 +236,18 @@ int main(int argc, char** argv) {
                     fail_and_exit_with_message(-1, e.what());
                 }
 
-                memset(our_buffer, 0, BUFFER_SIZE);
+                // No memset: read() reports exactly how many bytes it wrote and we
+                // only ever touch that many. Clearing the whole buffer first would
+                // cost more than the read itself now that it is megabytes wide.
                 int bytes_read = read(this_fd, our_buffer, BUFFER_SIZE);
 
                 // we cant inspect errno after read, so we treat this as failed cgi
                 // stop the child, drop and close its fd and answer the client with 502.
                 if (bytes_read == -1) {
-                    kill(client_connection->cgi_instance.cgi_pid, SIGKILL);
-                    waitpid(client_connection->cgi_instance.cgi_pid, NULL, 0);
-                    epoll_ctl(epoll_instance, EPOLL_CTL_DEL,
-                              client_connection->cgi_instance.cgi_fd, NULL);
-                    close(client_connection->cgi_instance.cgi_fd);
-                    cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
+                    detach_cgi_fd(epoll_instance, client_connection->cgi_instance, cgi_fd_map,
+                                  true);
                     queue_error_response(epoll_instance, *client_connection, 502);
+                    resetCgiInstance(client_connection->cgi_instance);
                     continue;
                 }
 
@@ -253,44 +258,30 @@ int main(int argc, char** argv) {
                 }
 
                 // bytes_read == 0: the pipe hit EOF, so the CGI closed stdout and all
-                // of its output is now in cgi_response.
-                // reap the child WITHOUT blocking (WNOHANG).
-                // if the CGI somehow hasn't exited yet, we leave the fd registered
-                // and re-check on the next epoll wakeup to prevent blocking the server.
-                // a cgi that closes stdout but keeps running would run here until the cgi_timeout
-                // kills it.
+                // of its output is now in cgi_response. Only the exit status is missing.
+                //
+                // Mark it here and stop watching the pipe further down: a pipe whose
+                // writer is gone stays readable forever, so leaving it armed would make
+                // epoll hand it straight back on every wakeup. The old code did exactly
+                // that whenever the child wasn't reapable yet, spinning the loop at full
+                // CPU - for a cgi that closes stdout but keeps running, until its
+                // cgi_timeout finally expired.
+                client_connection->cgi_instance.stdout_closed = true;
+
+                // reap the child WITHOUT blocking (WNOHANG). Virtually always succeeds
+                // right here, since stdout closing is the child exiting. If it doesn't,
+                // reap_timed_out_cgis picks it up on a later pass (the loop wakes at
+                // least once a second while any cgi is registered) instead of us
+                // spinning on it, and the timeout still bounds the wait.
                 int status = 0;
                 pid_t reaped = waitpid(client_connection->cgi_instance.cgi_pid, &status, WNOHANG);
                 if (reaped == 0) {
+                    epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
                     continue; // child not finished yet
                 }
 
-                cgi_fd_map.erase(client_connection->cgi_instance.cgi_fd);
-                if (epoll_ctl(epoll_instance, EPOLL_CTL_DEL, client_connection->cgi_instance.cgi_fd,
-                              NULL)
-                    == -1) {
-                    fail_and_exit_with_message(-1,
-                                               std::string("Failed to modify epoll_instance with "
-                                                           "\"epoll_ctl()\" function: ")
-                                                   + std::strerror(errno));
-                }
-                // done with the CGI pipe's read end; close it so the fd isn't leaked
-                // for the life of the server (one CGI request would otherwise = one fd).
-                // todo: check why wasnt being closed here before, maybe would be used again by the same client.
-                close(client_connection->cgi_instance.cgi_fd);
-
-                // only send 502 on a positive failure signal (non-zero exit or killed by
-                // a signal). if we couldn't confirm the status, serve the output we have.
-                bool cgi_failed = (reaped > 0) && (!WIFEXITED(status) || WEXITSTATUS(status) != 0);
-
-                if (cgi_failed) {
-                    queue_error_response(epoll_instance, *client_connection, 502);
-                } else {
-                    HttpResponse cgi_response = parseCgiResponse(
-                        client_connection->cgi_instance.cgi_response,
-                        *client_connection->ServerConfig_ptr, client_connection->request_data);
-                    queue_response(epoll_instance, *client_connection, cgi_response);
-                }
+                complete_cgi_request(epoll_instance, *client_connection, cgi_fd_map, reaped,
+                                     status);
                 continue;
             }
 
@@ -324,8 +315,8 @@ int main(int argc, char** argv) {
                                     *client_connection.ServerConfig_ptr, *responseLocation,
                                     client_connection.request_data);
 
-                                client_connection.output_buffer =
-                                    parseResponseToOutPut(responseMessage);
+                                parseResponseToOutPut(responseMessage,
+                                                      client_connection.output_buffer);
 
                                 // method allowed check
                             } else if (findStringOnVector(responseLocation->methods,
@@ -347,15 +338,15 @@ int main(int argc, char** argv) {
                                     200, client_connection.ServerConfig_ptr, *responseLocation,
                                     client_connection.request_data);
 
-                                client_connection.output_buffer =
-                                    parseResponseToOutPut(responseMessage);
+                                parseResponseToOutPut(responseMessage,
+                                                      client_connection.output_buffer);
 
                             } else {
                                 HttpResponse responseMessage = getResponseMessage(
                                     405, client_connection.ServerConfig_ptr, *responseLocation,
                                     client_connection.request_data);
-                                client_connection.output_buffer =
-                                    parseResponseToOutPut(responseMessage);
+                                parseResponseToOutPut(responseMessage,
+                                                      client_connection.output_buffer);
                             }
 
                             // if response location is not found i.e. NULL
@@ -364,10 +355,13 @@ int main(int argc, char** argv) {
                                 404, client_connection.ServerConfig_ptr, LocationConfig(),
                                 client_connection.request_data);
 
-                            client_connection.output_buffer =
-                                parseResponseToOutPut(responseMessage);
+                            parseResponseToOutPut(responseMessage,
+                                                  client_connection.output_buffer);
                         }
 
+                        // every branch above just replaced output_buffer wholesale,
+                        // so the drain position starts over at the front
+                        client_connection.output_sent = 0;
                         client_connection.ready_to_respond = true;
                     } catch (const std::exception& e) {
                         std::cerr << e.what() << std::endl;
@@ -376,30 +370,41 @@ int main(int argc, char** argv) {
                 }
 
                 if (client_connection.ready_to_respond == true) {
+                    // Send from where the last one stopped rather than from the
+                    // front of a shrinking buffer - see output_sent in
+                    // client_connection.hpp for why erasing here was quadratic.
                     ssize_t bytes_send =
-                        send(this_fd, client_connection.output_buffer.c_str(),
-                             client_connection.output_buffer.length(), MSG_NOSIGNAL);
+                        send(this_fd, client_connection.output_buffer.data()
+                                          + client_connection.output_sent,
+                             client_connection.output_buffer.size()
+                                 - client_connection.output_sent,
+                             MSG_NOSIGNAL);
 
                     if (bytes_send == -1) {
-                        // the client is gone (reset / broken pipe): drop this one connection
-                        epoll_ctl(epoll_instance, EPOLL_CTL_DEL, this_fd, NULL);
-                        close(this_fd);
-                        client_map.erase(this_fd);
+                        // the client is gone (reset / broken pipe): drop this one
+                        // connection, taking any cgi it still has running with it
+                        drop_client(epoll_instance, client_map, cgi_fd_map, this_fd);
                         continue;
                     }
 
-                    std::cout.write(client_connection.output_buffer.c_str(), bytes_send);
-                    client_connection.output_buffer.erase(0, bytes_send);
+                    // Echoing every byte we send to the terminal costs as much as the
+                    // response itself (a 100MB CGI body = 100MB to stdout) and stalls
+                    // the loop on a slow tty. Kept commented for local debugging only.
+                    // std::cout.write(client_connection.output_buffer.c_str(), bytes_send);
+                    client_connection.output_sent += static_cast<size_t>(bytes_send);
+
+                    if (client_connection.output_sent >= client_connection.output_buffer.size()) {
+                        client_connection.output_buffer.clear();
+                        client_connection.output_sent = 0;
+                    }
                 }
                 // epollout drain, close or keep alive based on conneciton type from
                 // request, or set to close if request body exceeded max size and
                 // has been responsed as 413.
                 if (client_connection.output_buffer.empty()) {
                     if (client_connection.close_after_response) {
-                        int fd = client_connection.client_fd;
-                        epoll_ctl(epoll_instance, EPOLL_CTL_DEL, fd, NULL);
-                        close(fd);
-                        client_map.erase(fd);
+                        drop_client(epoll_instance, client_map, cgi_fd_map,
+                                    client_connection.client_fd);
                         continue;
                     }
 

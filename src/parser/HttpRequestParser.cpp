@@ -87,16 +87,14 @@ void HttpRequestParser::parseBody(const std::string& raw, size_t body_start, Htt
         request.headers.find("content-length");
     if (length != request.headers.end()) {
         size_t body_length = static_cast<size_t>(std::atol(length->second.c_str()));
-        request.body = raw.substr(body_start, body_length);
+        // assign() copies the range straight in, better that substr for performance.
+        request.body.assign(raw, body_start, body_length);
     }
 }
 
-// Reads header lines from `pos` until the blank line, updating `pos` (by
-// reference) to point just past it, where the body starts.
-// Safe to call whenever the header block is known to be fully present: either
-// because `parse()`'s caller already guaranteed the whole request is
-// buffered, or because completeRequestLength() only calls this after
-// confirming the blank line was found.
+// considers the raw requst is complete and updates the `pos` to point
+// where the body starts.
+// then parses the header into request object.
 void HttpRequestParser::parseHeaderBlock(const std::string& raw, size_t& pos,
                                          HttpRequest& request) {
     while (pos < raw.size()) {
@@ -112,76 +110,112 @@ void HttpRequestParser::parseHeaderBlock(const std::string& raw, size_t& pos,
     }
 }
 
-HttpRequest HttpRequestParser::parse(const std::string& raw) {
-    HttpRequest request;
+void HttpRequestParser::parseInto(const std::string& raw, HttpRequest& out) {
+    // clear whatever the previous request on this connection left behind,
+    // in case something got past our after response clearing.
+    // body is released, because using only clear() keeps the allocation,
+    // and that locks the size used before.
+    out.method.clear();
+    out.path.clear();
+    out.query_string.clear();
+    out.version.clear();
+    out.headers.clear();
+    std::string().swap(out.body);
 
     size_t pos = 0;
     while (pos + 1 < raw.size() && raw[pos] == '\r' && raw[pos + 1] == '\n') {
         pos += 2;
     }
     size_t line_end = raw.find("\r\n", pos);
-    parseRequestLine(raw.substr(pos, line_end - pos), request);
+    parseRequestLine(raw.substr(pos, line_end - pos), out);
     pos = line_end + 2;
 
-    parseHeaderBlock(raw, pos, request);
-    parseBody(raw, pos, request);
+    parseHeaderBlock(raw, pos, out);
+    parseBody(raw, pos, out);
+}
 
+HttpRequest HttpRequestParser::parse(const std::string& raw) {
+    HttpRequest request;
+    parseInto(raw, request);
     return request;
 }
 
-// Walks a chunked body the same way parseChunkedBody() does, but treats
-// running out of buffered bytes as "not complete yet" instead of assuming
-// the data is there - that's the only difference from the happy-path
-// version, and it's the part that actually has to be defensive, since
-// finding the header-ending blank line says nothing about whether the body
-// bytes after it have fully arrived.
-size_t HttpRequestParser::chunkedRequestLength(const std::string& buffer, size_t pos) {
+// walks a chunked body, and treats running out of buffered byes as not done yet,
+// can be safely used for the receiving end.
+size_t HttpRequestParser::chunkedRequestLength(const std::string& buffer, RequestFraming& state) {
+    // uses the saved state to continue on reading
+    size_t pos = state.chunk_scan;
+
     while (true) {
         size_t line_end = buffer.find("\r\n", pos);
         if (line_end == std::string::npos) {
+            state.chunk_scan = pos;
             return std::string::npos; // chunk-size line not fully received yet
         }
 
         size_t chunk_size = std::strtoul(buffer.substr(pos, line_end - pos).c_str(), NULL, 16);
-        pos = line_end + 2;
+        size_t data_start = line_end + 2;
 
         if (chunk_size == 0) {
-            return pos; // terminating "0" chunk found - request is complete
+            state.chunk_scan = data_start;
+            return data_start; // terminating "0" chunk found - request is complete
         }
 
-        if (buffer.size() < pos + chunk_size + 2) {
+        if (buffer.size() < data_start + chunk_size + 2) {
+            // saving the position read for future reads.
+            state.chunk_scan = pos;
             return std::string::npos; // this chunk's data hasn't fully arrived yet
         }
 
-        pos += chunk_size + 2; // skip the chunk's data and its trailing CRLF
+        pos = data_start + chunk_size + 2; // skip the chunk's data and its trailing CRLF
     }
 }
 
-size_t HttpRequestParser::completeRequestLength(const std::string& buffer) {
-    if (buffer.find("\r\n\r\n") == std::string::npos) {
-        return std::string::npos; // headers not fully received yet
+size_t HttpRequestParser::completeRequestLength(const std::string& buffer, RequestFraming& state) {
+    // locate and measure the header block, set state when done with header.
+    if (!state.headers_done) {
+        size_t terminator = buffer.find("\r\n\r\n", state.header_scan);
+        if (terminator == std::string::npos) {
+            // ask: save the reading size for the next scan just before the tail,
+            // so a terminator split across two chunks is still caught
+            // without re-reading the front.
+            state.header_scan = (buffer.size() > 3) ? buffer.size() - 3 : 0;
+            return std::string::npos; // headers not fully received yet
+        }
+
+        HttpRequest probe;
+        size_t pos = 0;
+        while (pos + 1 < buffer.size() && buffer[pos] == '\r' && buffer[pos + 1] == '\n') {
+            pos += 2;
+        }
+        pos = buffer.find("\r\n", pos) + 2;
+        parseHeaderBlock(buffer, pos, probe);
+
+        state.headers_done = true;
+        state.header_length = pos;
+        state.chunk_scan = pos;
+
+        std::map<std::string, std::string>::const_iterator encoding =
+            probe.headers.find("transfer-encoding");
+        state.chunked = (encoding != probe.headers.end() && toLower(encoding->second) == "chunked");
+
+        std::map<std::string, std::string>::const_iterator length =
+            probe.headers.find("content-length");
+        if (length != probe.headers.end()) {
+            state.has_body_length = true;
+            state.content_length = static_cast<size_t>(std::atol(length->second.c_str()));
+        }
     }
 
-    HttpRequest probe;
-    size_t pos = 0;
-    while (pos + 1 < buffer.size() && buffer[pos] == '\r' && buffer[pos + 1] == '\n') {
-        pos += 2;
-    }
-    pos = buffer.find("\r\n", pos) + 2;
-    parseHeaderBlock(buffer, pos, probe);
-
-    std::map<std::string, std::string>::const_iterator encoding =
-        probe.headers.find("transfer-encoding");
-    if (encoding != probe.headers.end() && toLower(encoding->second) == "chunked") {
-        return chunkedRequestLength(buffer, pos);
+    // with state saved, every later chunk is a size comparison.
+    if (state.chunked) {
+        return chunkedRequestLength(buffer, state);
     }
 
-    std::map<std::string, std::string>::const_iterator length =
-        probe.headers.find("content-length");
-    if (length != probe.headers.end()) {
-        size_t total = pos + static_cast<size_t>(std::atol(length->second.c_str()));
+    if (state.has_body_length) {
+        size_t total = state.header_length + state.content_length;
         return (buffer.size() >= total) ? total : std::string::npos;
     }
 
-    return pos; // no body at all - the request ends right after the headers
+    return state.header_length; // no body at all - request ends after the headers
 }

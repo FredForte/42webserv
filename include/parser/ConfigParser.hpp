@@ -5,8 +5,8 @@
 #include "../../include/parser/Tokenizer.hpp"
 
 // Recursive-descent parser over the token stream produced by Tokenizer.
-// Happy-path only for now: assumes the config is well-formed. Validation
-// and error reporting (reject and refuse to start on bad config) come later.
+// Happy-path only for now: assumes the config is well-formed. 
+// Validation and error reporting handled on ConfigValidator class.
 class ConfigParser {
 public:
     ConfigParser(const std::string& source);
@@ -32,9 +32,10 @@ private:
     void parseReturn(LocationConfig& location);
     void parseCgi(LocationConfig& location);
     void parseCgiTimeout(LocationConfig& location);
+    void parseClientMaxBodySize(LocationConfig& location);
 
     std::string expectWord();    // consumes a TOKEN_WORD, returns its value
-    void expect(TokenType type); // todo consumes the next token (type unchecked for now)
+    void expect(TokenType type);
 };
 
 #endif

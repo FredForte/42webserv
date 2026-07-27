@@ -29,20 +29,24 @@ struct cgi_command_struct {
     cgi_command_struct() : cgi_type(NOT_DEFINED_YET), interpreted_language_path(NULL) {}
 };
 
+// cgi control structure for each connection.
+// reset by `resetCgiInstance` after every use to prevent fd missmatches and
+// recycled fds being used for the wrong connections.
 struct cgi_instance_struct {
     int client_fd;
-    int cgi_fd;
-    pid_t cgi_pid;          // fork()'s child pid, kept so the event loop can waitpid(WNOHANG) it
+    int cgi_fd;             // read end of the child's stdout pipe, -1 when idle
+    pid_t cgi_pid;          // fork()'s child pid, -1 once reaped
     time_t start_time;      // when the child was launched
     size_t timeout_seconds; // max run time (from the location's cgi_timeout), 0 = no limit
+    bool stdout_closed;     // pipe hit EOF; only the child's exit status is still pending
     cgi_command_struct cgi_command;
     std::string cgi_response;
     int cgi_exit_code;
     int epoll_instance;
 
     cgi_instance_struct()
-        : client_fd(0), cgi_fd(0), cgi_pid(-1), start_time(0), timeout_seconds(0), cgi_exit_code(0),
-          epoll_instance(0) {};
+        : client_fd(-1), cgi_fd(-1), cgi_pid(-1), start_time(0), timeout_seconds(0),
+          stdout_closed(false), cgi_exit_code(0), epoll_instance(0) {};
 };
 
 int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_body);

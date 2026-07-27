@@ -9,6 +9,7 @@ std::string readFile(const std::string& path);
 void printServer(const ServerConfig& server);
 bool findStringOnVector(std::vector<std::string> vector, std::string toFind);
 LocationConfig* findRequestedLocation(ServerConfig& server_conf, HttpRequest& request);
+size_t resolveMaxBodySize(const ServerConfig& server, const LocationConfig* location);
 HttpResponse getResponseMessage(int code, ServerConfig* server, LocationConfig responseLocation,
                                 const HttpRequest& request);
 std::string determineConnection(const HttpRequest& request);
@@ -18,9 +19,10 @@ std::string getErrorPage(int code, ServerConfig& server);
 std::string getServerSignature();
 std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerConfig& server,
                                      const std::string& script_path);
-HttpResponse parseCgiResponse(const std::string& cgi_output, ServerConfig& server,
+HttpResponse parseCgiResponse(std::string& cgi_output, ServerConfig& server,
                               const HttpRequest& request);
-std::string parseResponseToOutPut(HttpResponse response);
+void parseResponseToOutPut(const HttpResponse& response, std::string& output);
+std::string parseResponseToOutPut(const HttpResponse& response);
 std::string getFileExtension(const std::string& path);
 
 #endif
