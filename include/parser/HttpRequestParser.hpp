@@ -32,12 +32,10 @@ struct RequestFraming {
 
 class HttpRequestParser {
 public:
-    // parses a full request, and assumes raw holds one complete request
-    // completeRequestLength() needs to be called first to know when raw is done.
-    HttpRequest parse(const std::string& raw);
-
-    // added feature to fill an already existing request, this reduces
-    // unecessary copies that can affect performance.
+    // parses a full request into an already existing one, assumes raw holds one
+    // complete request, so completeRequestLength() needs to be called first to
+    // know when raw is done.
+    // filling `out` instead of returning avoids copying the whole body twice.
     void parseInto(const std::string& raw, HttpRequest& out);
 
     // tells the socket layer if it has buffered a full request.

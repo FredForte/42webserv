@@ -9,7 +9,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <sstream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -49,28 +48,6 @@ void new_connections_func(int epoll_instance, epoll_event& event_settings, int t
             -1, std::string("Failed to modify epoll_instance with \"epoll_ctl()\" function: ")
                     + std::strerror(errno));
     }
-
-    // isso mova de lugar
-    // ServerConfig* server_config_ptr =
-    //     get_server_config_instance_based_on_port_and_hostname(server_config_vec, this_fd);
-
-    // client_connection_struct client_connection;
-    // client_connection.client_fd = fd_to_add;
-    // client_connection.ready_to_respond = false;
-    // client_connection.close_after_response = false;
-    // client_connection.client_connection_type = STANDARD;
-    // client_connection.cgi_instance.client_fd = fd_to_add;
-    // client_connection.cgi_instance.cgi_fd = 0;
-    // client_connection.cgi_instance.epoll_instance = epoll_instance;
-
-    // std::stringstream ss;
-    // ss << client_connection.client_fd;
-    // client_connection.cookie_id = ss.str();
-    // client_connection.ServerConfig_ptr = server_config_ptr; // isso mova de lugar
-
-    // client_map.insert(std::make_pair(fd_to_add, client_connection));
-
-    // fd_to_ServerConfig_ptr_map.insert(std::make_pair(fd_to_add, server_config_ptr));
 }
 
 // 413 Payload Too Large, mark the connection to close once it's sent.
@@ -151,16 +128,10 @@ void standard_connections_func(int this_fd, const unsigned int BUFFER_SIZE, char
         a_client_connection.ready_to_respond = false;
         a_client_connection.close_after_response = false;
         a_client_connection.output_sent = 0;
-        a_client_connection.client_connection_type = STANDARD;
-        a_client_connection.cgi_instance.client_fd = this_fd;
         a_client_connection.cgi_instance.epoll_instance = epoll_instance;
         // the constructor already parks the slot at "nothing running" (-1s); leave
         // it that way rather than writing 0, which is a real descriptor
         resetCgiInstance(a_client_connection.cgi_instance);
-
-        std::stringstream ss;
-        ss << a_client_connection.client_fd;
-        a_client_connection.cookie_id = ss.str();
 
 		// pre cache the client_max_body_size from this port's default server
 		// will re-resolve further down the line when a full request is present.

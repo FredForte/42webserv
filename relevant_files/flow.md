@@ -56,7 +56,9 @@ epoll_wait(timeout = cgi_fd_map.empty() ? -1 : 1000)
 
 Where each branch goes: [cgi pipe](#52-collect) ·
 [EPOLLIN](#3-reading-a-request) · [EPOLLOUT](#6-writing-the-response) ·
-[reaper](#53-retire).
+[reaper](#53-retire). "Is this fd a cgi pipe?" is answered by membership in
+`cgi_fd_map`, not by a flag on the connection —
+[How CGI-ness is decided](info.md#how-cgi-ness-is-decided).
 
 The 1-second timeout only applies while a CGI is registered — it is what lets the
 reaper run even when no event arrives. Idle with no CGI, we block indefinitely.
@@ -122,6 +124,10 @@ resolveMaxBodySize() again, now authoritative
   |
   +-- otherwise -> arm EPOLLOUT, response built in the write handler
 ```
+
+That CGI test is per request, not per connection — the reasoning and the two
+other "is this CGI?" checks are in
+[How CGI-ness is decided](info.md#how-cgi-ness-is-decided).
 
 Branches: [CGI](#5-cgi-request) ·
 [standard response](#4-building-a-standard-response). Why `parseInto` instead of

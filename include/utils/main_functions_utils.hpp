@@ -5,7 +5,6 @@
 #include "../../include/parser/ConfigParser.hpp"
 #include "../../include/program_flow_utils.hpp"
 #include <map>
-#include <set>
 
 bool is_this_a_cgi_fd(const std::map<int, int>& cgi_fd_map, int this_fd);
 

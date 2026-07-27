@@ -16,7 +16,7 @@ change something and want to know what you might break.
 7. [Request framing](#7-request-framing)
 8. [Body limits](#8-body-limits)
 9. [Connection lifetime](#9-connection-lifetime)
-10. [CGI](#10-cgi)
+10. [CGI](#10-cgi) — [Cookies and sessions](#10b-cookies-and-sessions)
 11. [Error responses](#11-error-responses)
 12. [Resource discipline](#12-resource-discipline)
 13. [Test surfaces](#13-test-surfaces)
@@ -189,6 +189,17 @@ Configured per location as `cgi .ext [interpreter]`. With an interpreter the
 script is passed as its argv[1]; with none (`cgi .bla ;`) the script is executed
 directly as a binary.
 
+**Routing.** Whether a request goes to CGI is decided **per request**, never per
+connection — a keep-alive client can ask for a static file, then a script, then a
+static file again on one socket. Two things must both hold: the matched location
+configures at least one `cgi`, *and* the requested path's extension is in that
+location's map. An extension that is not configured falls through to the normal
+response path, where a missing file is a 404 — so a `.txt` inside a CGI directory
+is a 404, not an attempt to execute it.
+
+There is no "this is a CGI connection" flag; the three live checks that replaced
+it are written up in [How CGI-ness is decided](info.md#how-cgi-ness-is-decided).
+
 **Environment.** Full CGI/1.1 meta-variable set plus request headers as
 `HTTP_*`. The split that matters: `PATH_INFO`, `SCRIPT_NAME` and `REQUEST_URI`
 are **URL space**; `PATH_TRANSLATED` and `SCRIPT_FILENAME` are the
@@ -227,6 +238,40 @@ runs even when nothing else happens.
   collects it — the reaper skips entries whose client is gone.
 
 Full state machine: [CGI Lifecycle](info.md#cgi-lifecycle).
+
+---
+
+## 10b. Cookies and sessions
+
+The server owns **none** of this. It forwards in both directions and that is all:
+
+- the client's `Cookie` header arrives at the script as `HTTP_COOKIE`, like any
+  other header
+- whatever `Set-Cookie` the script emits is passed back to the client through the
+  response's extra headers
+
+The session itself lives in `cgi-bin/session.py`: no cookie means a fresh random
+token is minted and `Set-Cookie`'d, a returning cookie is recognised and the
+visit count advances. The count is kept in a file under `/tmp/webserv_sessions`
+because each CGI run is a new process and nothing survives in memory.
+
+Deliberately kept out of the server core. Session state cannot live on
+`client_connection_struct` — that is per **socket**, and a session has to outlive
+a socket: a browser opens several connections in parallel and reconnects
+constantly. (An earlier `cookie_id` field was keyed to the fd number, which the
+kernel recycles, so two unrelated clients could have collided.)
+
+**Cases to cater:**
+- the cookie value comes from the client and becomes part of a filename in the
+  session store, so anything the script did not mint must be refused — otherwise
+  `Cookie: session_id=../../etc/passwd` walks out of the store. The script
+  accepts only its own 32-hex format.
+- `Set-Cookie` is emitted only on the first visit; afterwards the client already
+  holds it.
+
+**Known limit:** `extra_headers` is a map keyed by header name, so a CGI emitting
+**two** `Set-Cookie` headers loses the first. One cookie per response works
+fine; if that ever needs to change, the field has to become a multimap.
 
 ---
 

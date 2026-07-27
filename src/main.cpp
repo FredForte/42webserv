@@ -3,8 +3,6 @@
 #include "../include/main_functions.hpp"
 #include "../include/parser/ConfigParser.hpp"
 #include "../include/parser/ConfigValidator.hpp"
-#include "../include/parser/HttpRequest.hpp"
-#include "../include/parser/HttpRequestParser.hpp"
 #include "../include/program_flow_utils.hpp"
 #include "../include/response/HttpResponse.hpp"
 #include "../include/response/response_handlers.hpp"
@@ -16,7 +14,6 @@
 #include <cstring>
 #include <iostream>
 #include <map>
-#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <sys/epoll.h>

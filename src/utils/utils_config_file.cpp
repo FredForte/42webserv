@@ -568,11 +568,3 @@ void parseResponseToOutPut(const HttpResponse& response, std::string& output) {
     output.reserve(output.size() + response.body.size());
     output.append(response.body);
 }
-
-// Kept for callers that just want the string; the reference form above is what
-// the response path uses.
-std::string parseResponseToOutPut(const HttpResponse& response) {
-    std::string output;
-    parseResponseToOutPut(response, output);
-    return output;
-}

@@ -309,3 +309,57 @@ The 42 `cgi_tester` rebuilds the request from `REQUEST_URI` and refuses to run u
 A location needs `upload_store` (or a `cgi` entry) to accept POST at all — without it `upload_enabled` is false and the answer is 403 before anything else is looked at.
 
 A POST aimed at the location prefix itself (`POST /post_body`) carries no filename to store under, and a body is optional for POST anyway. That is a valid request, not a client error: 200, nothing written.
+
+# Key-changes
+
+## How CGI-ness is decided
+There is no per-connection "this is a CGI connection" flag any more. CGI is a
+property of the **request**, not of the connection: a keep-alive client can ask
+for a static file, then a script, then a static file again on the same socket, so
+a flag set once at connection time would be wrong from the second request on.
+
+Three different questions get asked, and each is answered from live state rather
+than from a stored flag:
+
+**1. Should *this request* go to CGI?** Decided fresh per request in
+`standard_connections_func`:
+
+```cpp
+if (responseLocation && !responseLocation->cgi_extensions.empty()) {
+    // ... cgi_extensions.find("." + getFileExtension(request.path))
+```
+
+Both have to hold: the location configures CGI **and** the requested extension is
+in its map. An extension that is not configured falls through to the normal
+response path, where a missing file becomes a 404.
+
+**2. Is this fd a CGI pipe or a client socket?** Map membership, checked by the
+event loop on every wakeup:
+
+```cpp
+bool is_this_a_cgi_fd(const std::map<int, int>& cgi_fd_map, int this_fd) {
+    return cgi_fd_map.find(this_fd) != cgi_fd_map.end();
+}
+```
+
+**3. Does this connection have a CGI running right now?** The sentinels:
+`cgi_fd >= 0` and `cgi_pid > 0`. That is what `detach_cgi_fd` keys off to decide
+whether there is anything left to close or kill, and why those fields must be
+returned to `-1` on every terminal path — see [CGI Lifecycle](#cgi-lifecycle).
+
+`client_connection_struct::client_connection_type` (with its `STANDARD` / `CGI`
+enum) used to carry this. Superseded on all three counts and now **removed**: it
+was only ever assigned `STANDARD` and never read, so it reported `STANDARD` even
+while a CGI was running. Do not reintroduce it as a check — use the three above.
+
+## Cookies live in the CGI, not the server
+`cookie_id` and `cookie_data` were removed from `client_connection_struct`. Two
+reasons, and the second is the one that matters: that struct is per **socket**,
+and a session has to outlive a socket (a browser opens several connections in
+parallel and reconnects constantly). `cookie_id` was also set to the fd number,
+which the kernel recycles, so two unrelated clients could have collided on one
+session identity.
+
+The server now only forwards — `HTTP_COOKIE` in, `Set-Cookie` out — and
+`cgi-bin/session.py` owns the session. See
+[features.md](features.md#10b-cookies-and-sessions).

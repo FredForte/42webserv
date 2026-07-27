@@ -41,4 +41,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re debug parser_test request_parser_test
+.PHONY: all clean fclean re debug

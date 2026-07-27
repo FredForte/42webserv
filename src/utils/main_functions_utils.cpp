@@ -94,6 +94,7 @@ ServerConfig* get_server_config_instance_based_on_port_and_hostname(
 }
 void resetCgiInstance(cgi_instance_struct& cgi) {
     cgi.cgi_response.clear();
+    cgi.client_fd = -1;
     cgi.cgi_fd = -1;
     cgi.cgi_pid = -1;
     cgi.start_time = 0;

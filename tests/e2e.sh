@@ -223,6 +223,49 @@ else
 	fail "keep-alive CGI reuse: no stale output between runs (got $(printf '%s' "$CGI_REUSE" | head -c 120 | tr '\n' '~'))"
 fi
 
+echo "== cookies / sessions (owned entirely by the CGI) =="
+# The server only forwards: the client's Cookie header reaches the script as
+# HTTP_COOKIE, and whatever Set-Cookie the script emits is passed back out. The
+# session itself lives in cgi-bin/session.py, not in the server.
+JAR="$(mktemp)"
+COOKIE_1="$(curl -s -i -m 8 -c "$JAR" "http://$HOST:8080/cgi-bin/session.py")"
+if printf '%s' "$COOKIE_1" | grep -qi '^Set-Cookie: session_id='; then
+	pass "CGI Set-Cookie reaches the client"
+else
+	fail "CGI Set-Cookie reaches the client"
+fi
+if printf '%s' "$COOKIE_1" | grep -q 'visits: 1'; then
+	pass "first visit is counted as 1"
+else
+	fail "first visit is counted as 1"
+fi
+# Replaying the jar must be recognised - this is the whole point of the feature.
+COOKIE_2="$(curl -s -m 8 -b "$JAR" "http://$HOST:8080/cgi-bin/session.py")"
+if printf '%s' "$COOKIE_2" | grep -q 'Welcome back' && printf '%s' "$COOKIE_2" | grep -q 'visits: 2'; then
+	pass "returning client recognised by its cookie, count advances"
+else
+	fail "returning client recognised by its cookie, count advances"
+fi
+# A fresh client must not inherit the previous session.
+COOKIE_3="$(curl -s -m 8 "http://$HOST:8080/cgi-bin/session.py")"
+if printf '%s' "$COOKIE_3" | grep -q 'new visitor' && printf '%s' "$COOKIE_3" | grep -q 'visits: 1'; then
+	pass "a cookieless client starts its own session"
+else
+	fail "a cookieless client starts its own session"
+fi
+# The cookie value becomes part of a filename in the session store, so a value
+# the script did not mint must be refused rather than followed out of the store.
+rm -f /tmp/e2e_session_pwned
+curl -s -m 8 -H 'Cookie: session_id=../../../../tmp/e2e_session_pwned' \
+	"http://$HOST:8080/cgi-bin/session.py" >/dev/null
+if [ ! -e /tmp/e2e_session_pwned ]; then
+	pass "malformed session cookie cannot escape the session store"
+else
+	fail "malformed session cookie cannot escape the session store"
+	rm -f /tmp/e2e_session_pwned
+fi
+rm -f "$JAR"
+
 echo "== alias path resolution (prefix stripped, joined onto root) =="
 # /static is rooted at www/, so the /static prefix must be stripped before
 # joining. A 200 here (not 404) proves alias-style resolution: /static/index.html

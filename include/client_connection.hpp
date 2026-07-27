@@ -8,11 +8,6 @@
 #include <map>
 #include <string>
 
-enum client_connection_enum {
-    STANDARD,
-    CGI,
-};
-
 struct client_connection_struct {
     int client_fd;
     std::string input_buffer;
@@ -21,11 +16,8 @@ struct client_connection_struct {
     size_t output_sent; // controls the ammount already sent as an iterator.
     bool ready_to_respond;
     bool close_after_response;
-    client_connection_enum client_connection_type;
     cgi_instance_struct cgi_instance;
     HttpRequest request_data;
-    std::string cookie_id;
-    std::map<std::string, std::string> cookie_data;
     ServerConfig* ServerConfig_ptr;
 };
 

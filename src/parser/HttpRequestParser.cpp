@@ -134,12 +134,6 @@ void HttpRequestParser::parseInto(const std::string& raw, HttpRequest& out) {
     parseBody(raw, pos, out);
 }
 
-HttpRequest HttpRequestParser::parse(const std::string& raw) {
-    HttpRequest request;
-    parseInto(raw, request);
-    return request;
-}
-
 // walks a chunked body, and treats running out of buffered byes as not done yet,
 // can be safely used for the receiving end.
 size_t HttpRequestParser::chunkedRequestLength(const std::string& buffer, RequestFraming& state) {
@@ -176,9 +170,8 @@ size_t HttpRequestParser::completeRequestLength(const std::string& buffer, Reque
     if (!state.headers_done) {
         size_t terminator = buffer.find("\r\n\r\n", state.header_scan);
         if (terminator == std::string::npos) {
-            // ask: save the reading size for the next scan just before the tail,
-            // so a terminator split across two chunks is still caught
-            // without re-reading the front.
+            // save the reading size for the next scan just before the tail,
+            // like a rewind to always cather for the size of what we are looking for.
             state.header_scan = (buffer.size() > 3) ? buffer.size() - 3 : 0;
             return std::string::npos; // headers not fully received yet
         }

@@ -22,7 +22,6 @@ std::vector<std::string> buildCgiEnv(const HttpRequest& request, const ServerCon
 HttpResponse parseCgiResponse(std::string& cgi_output, ServerConfig& server,
                               const HttpRequest& request);
 void parseResponseToOutPut(const HttpResponse& response, std::string& output);
-std::string parseResponseToOutPut(const HttpResponse& response);
 std::string getFileExtension(const std::string& path);
 
 #endif
