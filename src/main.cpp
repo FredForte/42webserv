@@ -318,15 +318,6 @@ int main(int argc, char** argv) {
                                 // method allowed check
                             } else if (findStringOnVector(responseLocation->methods,
                                                           client_connection.request_data.method)) {
-                                // if (client_connection.request_data.method == "GET") {
-                                //     // create response for get method
-                                //     HttpResponse responseMessage = getResponseMessage(
-                                //         200, client_connection.ServerConfig_ptr,
-                                //         *responseLocation, client_connection.request_data);
-
-                                //     client_connection.output_buffer =
-                                //         parseResponseToOutPut(responseMessage);
-                                // }
 
                                 // getResponseMessage dispatches on request_data.method
                                 // internally (GET/POST/DELETE each have their own handler
@@ -377,7 +368,7 @@ int main(int argc, char** argv) {
                                  - client_connection.output_sent,
                              MSG_NOSIGNAL);
 
-                    if (bytes_send == -1) {
+                    if (bytes_send == -1 || bytes_send == 0) {
                         // the client is gone (reset / broken pipe): drop this one
                         // connection, taking any cgi it still has running with it
                         drop_client(epoll_instance, client_map, cgi_fd_map, this_fd);

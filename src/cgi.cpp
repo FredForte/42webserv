@@ -73,8 +73,7 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         ssize_t written_on_loop = write(stdin_fd, request_body.data() + total_written,
                                         request_body.size() - total_written);
 
-        if (written_on_loop == -1) {
-            // we can not inspect errno after write, so treating it as internal error
+        if (written_on_loop == -1 || written_on_loop == 0) {
             close(stdin_fd);
             throw std::runtime_error("Failed to write CGI stdin temp file");
         }
@@ -108,7 +107,7 @@ int execute_cgi(cgi_instance_struct& cgi_instance, const std::string& request_bo
         close(file_descriptors[0]);
         close(file_descriptors[1]);
 
-		// path setting for the interpreter languange, 
+		// path setting for the interpreter languange,
 		// this prevents looking up for it from the script directory.
         std::string interpreter_path;
         if (cgi_command.cgi_type == INTERPRETED_LANGUAGE) {

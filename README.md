@@ -128,6 +128,14 @@ Before starting, `webserv` validates the parsed configuration and exits with a c
 - `return` codes must be in the 3xx range.
 - Duplicate location paths within the same server are not allowed.
 
+### Siege Test
+
+# 255 conexões simultâneas
+siege -b -c 255 -t 60s -f ./tests/urls.txt
+
+# 255 conexões requisições CGI
+siege -b -c 255 -t 60s "http://127.0.0.1:8080/cgi-bin/sample_python_script.py POST user_name=siege"
+
 # Resources
 
 We used the following resources to understand and build the project:
