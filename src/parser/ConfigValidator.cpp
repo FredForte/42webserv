@@ -46,6 +46,14 @@ void ConfigValidator::validateServer(const ServerConfig& serverConf) {
         }
     }
 
+    for (size_t i = 0; i < serverConf.listens.size(); i++) {
+        for (size_t j = i + 1; j < serverConf.listens.size(); j++) {
+            if (serverConf.listens[i].port == serverConf.listens[j].port) {
+                throw configError("duplicate listen port \"" + toString(serverConf.listens[i].port) + "\"");
+            }
+        }
+    }
+
     for (size_t i = 0; i < serverConf.locations.size(); i++) {
         validateLocation(serverConf.locations[i]);
     }

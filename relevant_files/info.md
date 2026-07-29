@@ -37,15 +37,6 @@ They are splint into dedicated handlers `response_handlers.cpp` and hpp
 
 `joinPath` helper to replace the inline slash-checking, preventing it from duplicating the root + path and index + path.
 
-# Tester
-On the `tests` directory we have a script `run_tests.sh` and a set of test requests that we can run and tests the webserv behaviour, its interactive and allow us to select specific tests as we go. 
-
-It works like this:
-- Boots `webserv` using a config provided `./run_tests.sh [config-path]`, if none is provided it uses `config/upload_test.conf`, it will also build if the `webserv` binary is not found.
-- Lists every `*.http` file in `tests/`, prompts you to pick one or `a` for all or `q` to quit.
-- For each pick: prints the raw request, sends it over a real TCP socket via `nc -q 1` with a 2s reply cap since `webserv` is not closing the connection after responding yet, then prints the raw response.
-- Kills the server on exit/quit/Ctrl+C via a trap, so nothing lingers
-
 ## End to End Tester
 We have a script `e2e.sh` that runs a batch of requests and checks the response based on the `example.conf` file and the expected behaviours of our `webserv`, this server as a good `regression` test that we can run periodically to see if nothing broke after changes. 
 

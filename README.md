@@ -97,7 +97,7 @@ A server block is valid without locations. Location blocks are refinements of ho
 
 | Directive | Syntax | Description |
 |---|---|---|
-| `listen` | `listen <port>` or `listen <host>:<port>` | Port (and optional bind address) the server listens on. At least one is required. |
+| `listen` | `listen <port>` or `listen <host>:<port>` | Port (and optional bind address) the server listens on. At least one is required. No duplicated ports per server block. |
 | `server_name` | `server_name <name>` | Hostname used for virtual-host routing via the `Host` header. |
 | `error_page` | `error_page <code> <path>` | Maps an HTTP error code to a custom error page file. |
 | `client_max_body_size` | `client_max_body_size <bytes>` | Maximum allowed request body size in bytes. |
@@ -142,5 +142,9 @@ We used the following resources to understand and build the project:
 
 - https://beej.us/guide/bgnet/html/ 
     Great resource and very well written about all the corners we can face during the learning and development process of a webserv.
-- https://datatracker.ietf.org/doc/html/rfc2616
-    Good for reference the hard set rules of HTTP1.1
+- https://datatracker.ietf.org/doc/html/rfc1945
+    Good for reference the hard set rules of HTTP1.0
+
+## AI Usage
+
+In this project we used AI to clarify specific concepts and rules regarding the project basis, to create python cgi programs that run according to the CGI rules, to create an end to end tester that served us on every step of the development process garanteeing that we didn't break previous functionalities when adding new ones.

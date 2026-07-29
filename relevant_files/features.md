@@ -327,7 +327,6 @@ count back to baseline, zero zombies, no leftover `/tmp/webserv_cgi_stdin_*`.
 |---|---|
 | `tests/e2e.sh` | the regression gate. Non-interactive, asserts on real responses, exits non-zero on any failure. Run it after every change; `-v` dumps requests and responses. |
 | `tests/tester` | the 42 tester. Must exit 0 with no `FATAL` line. Includes the concurrency and 100MB-body stress tests. |
-| `tests/run_tests.sh` | interactive; fires the raw `.http` files in `tests/` one at a time and prints the raw response. |
 | `tests/valgrind.sh` | leak checking. |
 
 Fixtures worth knowing: `cgi-bin/slow.py` never exits (proves the timeout),
