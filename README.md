@@ -106,7 +106,7 @@ A server block is valid without locations. Location blocks are refinements of ho
 
 | Directive | Syntax | Description |
 |---|---|---|
-| `methods` | `methods <METHOD> [METHOD ...]` | Allowed HTTP methods (`GET`, `POST`, `DELETE`). |
+| `methods` | `methods <METHOD> [METHOD ...]` | Allowed HTTP methods (`GET`, `POST`, `DELETE`). (`POST` must implement a `upload_store` or a `cgi`) |
 | `root` | `root <path>` | Directory that serves as the document root for this location. |
 | `index` | `index <file>` | Default file served when the request resolves to a directory. |
 | `autoindex` | `autoindex on\|off` | Enables directory listing when no index file is found. |
